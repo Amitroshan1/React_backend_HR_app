@@ -4,10 +4,24 @@ import { Toast } from '../Wfh/ui/Toast';
 import './Separation.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE_URL = '/api/leave';
 const SUBMIT_ENABLE_CHARS = 10;
 const NOTICE_CHARS = 500;
+
+function todayIsoIST() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+function addDaysIso(isoDate, days) {
+  const n = Number(days);
+  if (!isoDate || !Number.isFinite(n)) return isoDate;
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return dt.toISOString().slice(0, 10);
+}
+
 const EMPTY_NOTICE = {
   notice_active: false,
   notice_period_days: 30,
@@ -32,7 +46,7 @@ function Button({ children, variant = 'primary', className = '', ...props }) {
 function DownloadExperienceLetterButton({ apiBase }) {
   const [downloading, setDownloading] = useState(false);
   const handleDownload = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     setDownloading(true);
     try {
@@ -68,7 +82,7 @@ function DownloadExperienceLetterButton({ apiBase }) {
 function DownloadRelievingLetterButton({ apiBase }) {
   const [downloading, setDownloading] = useState(false);
   const handleDownload = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     setDownloading(true);
     try {
@@ -124,7 +138,7 @@ export const Separation = () => {
 
   const fetchResignationStatus = async (updateStep = true) => {
     if (updateStep) setLoading(true);
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       if (updateStep) setLoading(false);
       return;
@@ -189,17 +203,17 @@ export const Separation = () => {
   // Submit only the separation request. Department NOC is handled downstream.
   const handleApplySeparation = async (data) => {
     if (submitting) return;
-    if (!data?.resignationDate || !data?.reason?.trim()) {
+    if (!data?.reason?.trim()) {
       setToast({
         show: true,
-        message: 'Please enter a resignation date and reason.',
+        message: 'Please enter a reason for resignation.',
         type: 'error',
       });
       setStep('resignation');
       return;
     }
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setToast({ show: true, message: 'Please login again', type: 'error' });
       return;
@@ -215,7 +229,7 @@ export const Separation = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          resignation_date: data.resignationDate,
+          resignation_date: todayIsoIST(),
           reason: data.reason.trim(),
         }),
       });
@@ -244,7 +258,7 @@ export const Separation = () => {
 
   const handleRevokeResignation = async () => {
     if (revoking) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setToast({ show: true, message: 'Please login again', type: 'error' });
       return;
@@ -376,9 +390,15 @@ export const Separation = () => {
             {resignation && (
               <div className="success-details">
                 <div className="detail-row">
-                  <span className="label">Resignation Date:</span>
+                  <span className="label">Submitted on:</span>
                   <span className="value">{formatDate(resignation.resignation_date)}</span>
                 </div>
+                {notice?.notice_end_date && (
+                  <div className="detail-row">
+                    <span className="label">You will work until:</span>
+                    <span className="value">{formatDate(notice.notice_end_date)}</span>
+                  </div>
+                )}
                 <div className="detail-row">
                   <span className="label">Reason:</span>
                   <span className="value">{resignation.reason}</span>
@@ -449,17 +469,20 @@ export const Separation = () => {
 };
 
 function ResignationFormCard({ userName, userEmail, userDoj, userCircle, noticePeriodDays, onSubmit, submitting }) {
-  const [resignationDate, setResignationDate] = useState('');
+  const applyDate = todayIsoIST();
   const [reason, setReason] = useState('');
   const [canSubmit, setCanSubmit] = useState(false);
+  const noticeDays =
+    noticePeriodDays || (String(userCircle).trim().toUpperCase() === 'NHQ' ? 90 : 30);
+  const lastWorkingDay = addDaysIso(applyDate, noticeDays);
 
   useEffect(() => {
-    setCanSubmit(resignationDate.trim() !== '' && reason.trim().length >= SUBMIT_ENABLE_CHARS);
-  }, [resignationDate, reason]);
+    setCanSubmit(reason.trim().length >= SUBMIT_ENABLE_CHARS);
+  }, [reason]);
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    onSubmit({ resignationDate, reason });
+    onSubmit({ resignationDate: applyDate, reason });
   };
 
   return (
@@ -481,8 +504,24 @@ function ResignationFormCard({ userName, userEmail, userDoj, userCircle, noticeP
         intention to separate from this organization.
       </div>
 
-      <label>Resignation Date *</label>
-      <input type="date" value={resignationDate} onChange={(e) => setResignationDate(e.target.value)} />
+      <label>Resignation submitted on</label>
+      <input
+        type="date"
+        className="noc-date-readonly"
+        value={applyDate}
+        readOnly
+        disabled
+        min={applyDate}
+        max={applyDate}
+      />
+      <p className="section-hint subtle">This is today. A future or past date cannot be selected.</p>
+
+      <label>You will work until</label>
+      <input type="date" className="noc-date-readonly" value={lastWorkingDay} readOnly disabled />
+      <p className="section-hint subtle">
+        Last working day is today plus your notice period ({noticeDays} days). This is shown for you
+        only — it is not a date you pick.
+      </p>
 
       <label>Reason for Resignation *</label>
       <textarea
@@ -497,7 +536,7 @@ function ResignationFormCard({ userName, userEmail, userDoj, userCircle, noticeP
       </div>
 
       <p className="section-hint">
-        Notice period: <strong>{noticePeriodDays || (String(userCircle).trim().toUpperCase() === 'NHQ' ? 90 : 30)} days</strong>
+        Notice period: <strong>{noticeDays} days</strong>
         {String(userCircle).trim().toUpperCase() === 'NHQ' ? ' for NHQ' : ' for your circle'}.
       </p>
       <Button onClick={handleSubmit} disabled={!canSubmit || submitting}>

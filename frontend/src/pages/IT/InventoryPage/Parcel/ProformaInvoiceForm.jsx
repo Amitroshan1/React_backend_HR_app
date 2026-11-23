@@ -239,7 +239,7 @@ export default function ProformaInvoiceForm({ selectedAssets, onExport, onCancel
           <strong>Declaration:</strong> We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.
         </p>
         <p className="pi-note">Note: This is a computer-generated bill signature doesn’t Require.</p>
-        <p className="pi-sign">For SAFFO SOLUTION TECHNOLOGY</p>
+        <p className="pi-sign">For Saffo Solution Technology</p>
       </article>
 
       <div className="pi-footer">

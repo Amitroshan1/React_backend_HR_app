@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { INV_CATEGORIES } from '../inventoryCategories';
 import '../../Admin/AdminSidebar.css';
+import { getAccessToken } from "../../../utils/authSession";
 
 const CAT_ICONS = {
   'IT Assets': Laptop,
@@ -42,7 +43,7 @@ export default function InventorySidebar({ onNavigate }) {
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      const token = localStorage.getItem('token');
+      const token = getAccessToken();
       fetch('/api/it/summary', {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })

@@ -5,7 +5,7 @@
 #https://solviotec.com/api/leave
 
 from flask import Blueprint, request, current_app, jsonify, json, send_file
-from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication, LeaveBalance, AttendanceRegularization, LEAVE_REASON_MAX_LEN
+from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication, LeaveBalance, LEAVE_REASON_MAX_LEN
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.Admin_models import Admin
@@ -30,7 +30,7 @@ from . import db
 from .noc_department_service import reject_pending_noc_rows_for_resignation, NOC_DEPT_LABELS, _effective_noc_row_status
 from flask import jsonify
 from datetime import date, datetime, timedelta
-from .datetime_utils import isoformat_api
+from .datetime_utils import isoformat_api, IST
 from zoneinfo import ZoneInfo
 import calendar
 import os
@@ -70,6 +70,93 @@ def _load_holiday_sets(year: int, start_date: date, end_date: date, tenant_id=No
     mandatory = {d for d, optional in dates if not optional}
     optional = {d for d, opt in dates if opt}
     return mandatory, optional
+
+
+def _holiday_entries(start_date: date, end_date: date, tenant_id=None) -> dict:
+    """holiday_date -> {name, is_optional} for the inclusive range (covers year boundaries)."""
+    from .cache import active_holidays_for_year, holiday_as_date
+    from .tenant_context import get_current_tenant_id
+
+    tid = tenant_id if tenant_id is not None else get_current_tenant_id()
+    out = {}
+    for year in range(start_date.year, end_date.year + 1):
+        for row in active_holidays_for_year(tid, year):
+            d = holiday_as_date(row.get("holiday_date"))
+            if d is None or d < start_date or d > end_date:
+                continue
+            name = (row.get("holiday_name") or "Public holiday").strip() or "Public holiday"
+            out[d] = {"name": name, "is_optional": bool(row.get("is_optional"))}
+    return out
+
+
+def calendar_block_for_leave_type(
+    *,
+    emp_type: str,
+    start_date: date,
+    end_date: date,
+    leave_type: str,
+    tenant_id=None,
+):
+    """Reject PL/CL/half-day/comp-off on public holidays or ranges with no working days.
+
+    Optional Leave is unchanged (validated separately against the optional calendar).
+    Multi-day leave that includes a holiday still allowed; the holiday is not deducted
+    unless sandwich rules apply.
+    """
+    lt = (leave_type or "").strip()
+    if not lt or lt == "Optional Leave":
+        return None
+    if end_date < start_date:
+        return None
+
+    holidays = _holiday_entries(start_date, end_date, tenant_id)
+    working_days, _sandwich = _compute_working_and_sandwich_days(
+        emp_type=emp_type or "",
+        start_date=start_date,
+        end_date=end_date,
+        tenant_id=tenant_id,
+    )
+
+    def _fmt(d: date) -> str:
+        return d.strftime("%d/%m/%Y")
+
+    if start_date == end_date:
+        info = holidays.get(start_date)
+        if info and not info["is_optional"]:
+            return (
+                f"{_fmt(start_date)} is a public holiday ({info['name']}). "
+                f"You cannot apply {lt} on a company holiday."
+            )
+        if info and info["is_optional"]:
+            return (
+                f"{_fmt(start_date)} is an optional holiday ({info['name']}). "
+                "Apply Optional Leave for this date instead."
+            )
+        if working_days <= 0:
+            return (
+                f"{_fmt(start_date)} is a non-working day. "
+                "You cannot apply leave for this date."
+            )
+        return None
+
+    if working_days <= 0:
+        mand = [
+            f"{_fmt(d)} ({h['name']})"
+            for d, h in sorted(holidays.items())
+            if not h["is_optional"]
+        ]
+        if mand:
+            shown = ", ".join(mand[:3])
+            extra = f" (+{len(mand) - 3} more)" if len(mand) > 3 else ""
+            return (
+                f"The selected dates have no working days. "
+                f"Public holiday: {shown}{extra}. Leave is not required."
+            )
+        return (
+            "The selected dates have no working days (weekend and/or holiday). "
+            "Leave is not required."
+        )
+    return None
 
 
 def _parse_leave_year(value):
@@ -704,14 +791,28 @@ def apply_leave_api():
             "success": False,
             "message": "End date cannot be in the past"
         }), 400
+    from .leave_settings import leave_beyond_current_year_message
+    year_err = leave_beyond_current_year_message(start_date, end_date, today=today_ist)
+    if year_err:
+        return jsonify({"success": False, "message": year_err}), 400
 
-    leave_type = data.get("leave_type")
+    leave_type = (data.get("leave_type") or "").strip()
     reason = (data.get("reason") or "").strip()
 
-    if not leave_type or not reason:
+    if not leave_type and not reason:
         return jsonify({
             "success": False,
-            "message": "leave_type and reason are required"
+            "message": "Leave type and reason are required"
+        }), 400
+    if not leave_type:
+        return jsonify({
+            "success": False,
+            "message": "Please select a leave type"
+        }), 400
+    if not reason:
+        return jsonify({
+            "success": False,
+            "message": "Please enter a reason"
         }), 400
 
     if len(reason) < 20:
@@ -749,6 +850,16 @@ def apply_leave_api():
                 "success": False,
                 "message": "Selected date is not an optional holiday in the company calendar"
             }), 400
+
+    calendar_err = calendar_block_for_leave_type(
+        emp_type=getattr(admin, "emp_type", None) or "",
+        start_date=start_date,
+        end_date=end_date,
+        leave_type=leave_type,
+        tenant_id=tenant_id_for_admin(admin),
+    )
+    if calendar_err:
+        return jsonify({"success": False, "message": calendar_err}), 400
 
     # -------------------------
     # 🚫 DUPLICATE / SAME DATE CHECK (skip for Optional Leave - it's a special holiday)
@@ -1242,14 +1353,27 @@ def submit_expense_claim():
                 "message": "Travel From cannot be after Travel To"
             }), 400
 
+        employee_name = (data.get("employee_name") or "").strip()
+        designation = (data.get("designation") or "").strip()
+        emp_id = (data.get("emp_id") or "").strip()
+        project_name = (data.get("project_name") or "").strip()
+        country_state = (data.get("country_state") or "").strip()
+        if country_state.upper() in {"N/A", "NA", "-"}:
+            country_state = ""
+        if not employee_name or not designation or not emp_id or not project_name or not country_state:
+            return jsonify({
+                "success": False,
+                "message": "Please fill in all employee and travel details.",
+            }), 400
+
         header = ExpenseClaimHeader(
             admin_id=admin.id,
-            employee_name=data.get("employee_name"),
-            designation=data.get("designation"),
-            emp_id=data.get("emp_id"),
+            employee_name=employee_name,
+            designation=designation,
+            emp_id=emp_id,
             email=email,
-            project_name=data.get("project_name"),
-            country_state=data.get("country_state"),
+            project_name=project_name,
+            country_state=country_state,
             travel_from_date=travel_from_date,
             travel_to_date=travel_to_date
         )
@@ -1299,12 +1423,25 @@ def submit_expense_claim():
                     )
                 }), 400
 
+            try:
+                item_amount = float(exp.get("amount"))
+            except (TypeError, ValueError):
+                return jsonify({
+                    "success": False,
+                    "message": f"Expense item {index + 1} amount is invalid",
+                }), 400
+            if item_amount <= 0:
+                return jsonify({
+                    "success": False,
+                    "message": f"Expense item {index + 1} amount must be greater than 0",
+                }), 400
+
             item = ExpenseLineItem(
                 claim_id=header.id,
                 sr_no=exp.get("sr_no"),
                 date=item_date,
                 purpose=exp.get("purpose"),
-                amount=exp.get("amount"),
+                amount=item_amount,
                 currency=exp.get("currency"),
                 Attach_file=filename,
                 status="Pending"
@@ -1397,14 +1534,23 @@ def _create_separation_request(data):
     if latest and _is_active_resignation_status(latest.status):
         return jsonify({"success": False, "message": "You have already submitted a resignation request."}), 409
 
-    resignation_date = data.get("resignation_date")
     reason = (data.get("reason") or "").strip()
-    if not resignation_date or not reason:
-        return jsonify({"success": False, "message": "Resignation date and reason are required"}), 400
-    try:
-        resignation_date_obj = datetime.strptime(str(resignation_date)[:10], "%Y-%m-%d").date()
-    except ValueError:
-        return jsonify({"success": False, "message": "Invalid date format. Use YYYY-MM-DD"}), 400
+    if not reason:
+        return jsonify({"success": False, "message": "Resignation reason is required"}), 400
+
+    today = datetime.now(IST).date()
+    raw_date = data.get("resignation_date")
+    if raw_date:
+        try:
+            submitted_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid date format. Use YYYY-MM-DD"}), 400
+        if submitted_date != today:
+            return jsonify({
+                "success": False,
+                "message": "Resignation can only be submitted for today's date.",
+            }), 400
+    resignation_date_obj = today
 
     resignation = Resignation(
         admin_id=admin.id,
@@ -2244,115 +2390,15 @@ def download_my_experience_letter():
         return jsonify({"success": False, "message": "Failed to generate experience letter"}), 500
 
 
-@leave.route("/regularization", methods=["GET"])
+def _regularization_retired():
+    return jsonify({
+        "success": False,
+        "message": "Leave regularization is no longer used. Raise a query to HR to adjust missed leave.",
+    }), 410
+
+
+@leave.route("/regularization", methods=["GET", "POST"])
 @jwt_required()
 def list_my_attendance_regularizations():
-    email = get_jwt().get("email")
-    admin = current_admin()
-    if not admin:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
-
-    rows = (
-        AttendanceRegularization.query.filter_by(admin_id=admin.id)
-        .order_by(AttendanceRegularization.created_at.desc(), AttendanceRegularization.id.desc())
-        .limit(100)
-        .all()
-    )
-    return jsonify({
-        "success": True,
-        "requests": [
-            {
-                "id": r.id,
-                "leave_type": r.leave_type,
-                "start_date": r.start_date.isoformat() if r.start_date else None,
-                "end_date": r.end_date.isoformat() if r.end_date else None,
-                "reason": r.reason,
-                "status": r.status,
-                "hr_comment": r.hr_comment,
-                "leave_application_id": r.leave_application_id,
-                "created_at": isoformat_api(r.created_at),
-                "reviewed_at": isoformat_api(r.reviewed_at) if r.reviewed_at else None,
-            }
-            for r in rows
-        ],
-    }), 200
-
-
-@leave.route("/regularization", methods=["POST"])
-@jwt_required()
-def submit_attendance_regularization():
-    """Employee requests HR to regularize a past absence period."""
-    from . import leave_settings as leave_cfg
-
-    email = get_jwt().get("email")
-    admin = current_admin()
-    if not admin:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
-
-    data = request.get_json(silent=True) or {}
-    leave_type = (data.get("leave_type") or "").strip()
-    reason = (data.get("reason") or "").strip()
-    if not leave_type or not reason:
-        return jsonify({"success": False, "message": "leave_type and reason are required"}), 400
-    if len(reason) < 20:
-        return jsonify({"success": False, "message": "Reason must be at least 20 characters long"}), 400
-
-    try:
-        start_date = datetime.strptime(data.get("start_date"), "%Y-%m-%d").date()
-        end_date = datetime.strptime(data.get("end_date"), "%Y-%m-%d").date()
-    except Exception:
-        return jsonify({"success": False, "message": "Invalid date format. Use YYYY-MM-DD"}), 400
-
-    if end_date < start_date:
-        return jsonify({"success": False, "message": "End date cannot be before start date"}), 400
-
-    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
-    if start_date >= today_ist:
-        return jsonify({
-            "success": False,
-            "message": "Regularization is only for past dates. Use Apply Leave for current/future dates.",
-        }), 400
-
-    max_days = leave_cfg.max_regularization_backdate_days()
-    if max_days > 0:
-        earliest = today_ist - timedelta(days=max_days)
-        if start_date < earliest:
-            return jsonify({
-                "success": False,
-                "message": f"Regularization is limited to the last {max_days} days.",
-            }), 400
-
-    pending = AttendanceRegularization.query.filter(
-        AttendanceRegularization.admin_id == admin.id,
-        AttendanceRegularization.status == "Pending",
-        AttendanceRegularization.start_date <= end_date,
-        AttendanceRegularization.end_date >= start_date,
-    ).first()
-    if pending:
-        return jsonify({
-            "success": False,
-            "message": "A pending regularization request already exists for overlapping dates.",
-        }), 409
-
-    row = AttendanceRegularization(
-        admin_id=admin.id,
-        leave_type=leave_type,
-        start_date=start_date,
-        end_date=end_date,
-        reason=reason,
-        status="Pending",
-    )
-    try:
-        db.session.add(row)
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error("regularization submit failed: %s", e, exc_info=True)
-        return jsonify({"success": False, "message": "Failed to submit regularization request"}), 500
-
-    return jsonify({
-        "success": True,
-        "message": "Regularization request submitted to HR for review.",
-        "request": {"id": row.id, "status": row.status},
-    }), 201
+    return _regularization_retired()
 

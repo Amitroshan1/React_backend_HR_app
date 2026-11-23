@@ -1,4 +1,5 @@
 import { designationOptions as defaultDesignationOptions } from '../pages/Profile/utils/profileUtils';
+import { getAccessToken } from "./authSession";
 
 const STORAGE_KEY = 'hr_custom_designations';
 const API_PATH = '/api/HumanResource/designations';
@@ -46,7 +47,7 @@ export function mergeDesignationLists(...lists) {
 }
 
 export async function fetchDesignationCatalog() {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   const local = getStoredCustomDesignations();
   let remote = [];
 

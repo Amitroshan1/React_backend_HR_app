@@ -17,11 +17,12 @@ import {
 } from "lucide-react";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDate } from "../../utils/dateFormat";
+import { getAccessToken } from "../../utils/authSession";
 
 const API = "/api/accounts";
 
 function authHeaders() {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

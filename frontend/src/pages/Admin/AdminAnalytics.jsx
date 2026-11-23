@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './AdminAnalytics.css';
 import { canManageCustomerRegistry } from './customerRegistryAccess';
+import { getAccessToken, hasSignedInHint } from "../../utils/authSession";
 
 const API_CUSTOMERS = '/api/admin/customers';
 
@@ -156,15 +157,15 @@ export default function AdminAnalytics() {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const token = localStorage.getItem('token');
-    if (!token) {
+    const token = getAccessToken();
+    if (!token && !hasSignedInHint()) {
       setLoading(false);
       setError('Sign in again to load analytics.');
       return;
     }
     setLoading(true);
     setError('');
-    const headers = { Authorization: `Bearer ${token}` };
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
     try {
       if (!await canManageCustomerRegistry(headers)) {
         setBlocked(true);
@@ -173,7 +174,7 @@ export default function AdminAnalytics() {
         return;
       }
       setBlocked(false);
-      const res = await fetch(API_CUSTOMERS, { headers });
+      const res = await fetch(API_CUSTOMERS, { headers, credentials: "include" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         throw new Error(data.message || 'Could not load companies');

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .. import db
 from ..datetime_utils import isoformat_api, utc_now
+from ..money import Money
 
 
 class EmployeeSalaryLoan(db.Model):
@@ -16,9 +17,10 @@ class EmployeeSalaryLoan(db.Model):
         index=True,
     )
     description = db.Column(db.String(255), nullable=True)
-    principal_amount = db.Column(db.Float, nullable=False, default=0.0)
-    emi_monthly = db.Column(db.Float, nullable=False, default=0.0)
-    balance_remaining = db.Column(db.Float, nullable=False, default=0.0)
+    principal_amount = db.Column(Money(), nullable=False, default=0)
+    emi_monthly = db.Column(Money(), nullable=False, default=0)
+    balance_remaining = db.Column(Money(), nullable=False, default=0)
+    amount_blob = db.Column(db.LargeBinary, nullable=True)
     start_date = db.Column(db.Date, nullable=True)
     status = db.Column(db.String(20), nullable=False, default="active")
     created_at = db.Column(db.DateTime, nullable=True, default=utc_now)

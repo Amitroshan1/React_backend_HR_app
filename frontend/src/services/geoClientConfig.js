@@ -1,3 +1,4 @@
+import { getAccessToken } from "../utils/authSession";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 const DEFAULTS = Object.freeze({
@@ -17,6 +18,7 @@ const DEFAULTS = Object.freeze({
     maxAttempts: 5,
     timeoutMs: 8000,
     totalTimeoutMs: 12000,
+    watchBurstMs: 8000,
     interAttemptDelayMs: 1500,
     earlyStopAccuracyM: 30,
     earlyStopSpreadM: 50,
@@ -49,7 +51,7 @@ export async function loadGeoClientConfig() {
   if (_fetchPromise) return _fetchPromise;
   _fetchPromise = (async () => {
     try {
-      const token = localStorage.getItem("token");
+      const token = getAccessToken();
       if (!token) { _cached = DEFAULTS; return DEFAULTS; }
       const res = await fetch(`${API_BASE_URL}/employee/geo/client-config`, {
         headers: { Authorization: `Bearer ${token}` },

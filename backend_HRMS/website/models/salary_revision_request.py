@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .. import db
 from ..datetime_utils import isoformat_api, utc_now
+from ..money import Money
 
 
 class SalaryRevisionRequest(db.Model):
@@ -29,7 +30,7 @@ class SalaryRevisionRequest(db.Model):
     )
     revision_type = db.Column(db.String(20), nullable=False, default="probation", index=True)
     status = db.Column(db.String(20), nullable=False, default="pending", index=True)
-    proposed_annual_ctc = db.Column(db.Float, nullable=True)
+    proposed_annual_ctc = db.Column(Money(), nullable=True)
     effective_from = db.Column(db.Date, nullable=True)
     notes = db.Column(db.Text, nullable=True)
     manager_notes = db.Column(db.Text, nullable=True)

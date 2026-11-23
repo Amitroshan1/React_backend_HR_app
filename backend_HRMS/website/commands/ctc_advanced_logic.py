@@ -46,25 +46,26 @@ def employer_pf_eps_split(
 ) -> dict:
     """Employer PF 12% split into EPS (8.33% capped) + EPF employer balance."""
     try:
-        from .ctc_breakup_logic import statutory_pack_for
+        from .ctc_breakup_logic import annualize_monthly, money2, statutory_pack_for
     except ImportError:
-        from ctc_breakup_logic import statutory_pack_for
+        from ctc_breakup_logic import annualize_monthly, money2, statutory_pack_for
 
     pack = statutory_pack_for(as_of)
     eps_max = float(pack.get("eps_contrib_max") or EPS_CONTRIB_MAX)
     wage = pf_wage_capped(
         basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
     )
-    eps = min(round(wage * EPS_RATE / 100.0, 2), eps_max)
-    employer_total = round(wage * PF_RATE / 100.0, 2)
-    epf_er = round(max(0.0, employer_total - eps), 2)
+
+    eps = min(money2(wage * EPS_RATE / 100.0), eps_max)
+    employer_total = money2(wage * PF_RATE / 100.0)
+    epf_er = money2(max(0.0, employer_total - eps))
     return {
-        "pf_wage_capped": round(wage, 2),
+        "pf_wage_capped": money2(wage),
         "employer_pf_total_monthly": employer_total,
-        "eps_contribution_monthly": round(eps, 2),
+        "eps_contribution_monthly": money2(eps),
         "epf_er_contribution_monthly": epf_er,
-        "eps_contribution_yearly": round(eps * 12, 2),
-        "epf_er_contribution_yearly": round(epf_er * 12, 2),
+        "eps_contribution_yearly": annualize_monthly(eps),
+        "epf_er_contribution_yearly": annualize_monthly(epf_er),
     }
 
 
@@ -104,14 +105,17 @@ def nps_employer_yearly(
     dearness_allowance: float = 0,
     nps_employer_pct_of_basic: float = 10.0,
 ) -> float:
-    return round(
+    try:
+        from .ctc_breakup_logic import annualize_monthly
+    except ImportError:
+        from ctc_breakup_logic import annualize_monthly
+
+    return annualize_monthly(
         nps_employer_monthly(
             basic_salary=basic_salary,
             dearness_allowance=dearness_allowance,
             nps_employer_pct_of_basic=nps_employer_pct_of_basic,
         )
-        * 12,
-        2,
     )
 
 

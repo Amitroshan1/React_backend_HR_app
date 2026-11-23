@@ -5,6 +5,7 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { AdminBreadcrumb, commandCenterCrumbItem } from '../../components/layout/AdminBreadcrumb';
 import './EmployeeDetails.css';
 import { formatDate, formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
+import { getAccessToken } from "../../utils/authSession";
 
 const ADMIN_EMPLOYEE_DETAIL_API = '/api/admin/employees';
 const ADMIN_QUERY_API = '/api/admin/queries';
@@ -67,7 +68,7 @@ const EmployeeDetails = () => {
   const [error, setError] = useState(false);
 
   const loadEmployee = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!id || !token) {
       setLoading(false);
       setError(true);
@@ -98,7 +99,7 @@ const EmployeeDetails = () => {
 
   useEffect(() => {
     if (activeSection !== 'Punches' || !id) return undefined;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return undefined;
 
     let cancelled = false;
@@ -135,7 +136,7 @@ const EmployeeDetails = () => {
   }, [activeSection, id]);
 
   const openQueryChat = (queryId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     setQueryModalOpen(true);
     setQueryDetailLoading(true);

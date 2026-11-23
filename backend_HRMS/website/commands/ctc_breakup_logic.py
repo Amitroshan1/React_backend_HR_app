@@ -122,10 +122,19 @@ def normalize_allowance_heads(
     return heads, total
 
 
+def money2(value):
+    return round(float(value or 0), 2)
+
+
+def annualize_monthly(monthly):
+    """Annual amount from a 2-decimal monthly figure so monthly × 12 == yearly."""
+    return money2(money2(monthly) * 12.0)
+
+
 def total_ctc_annual(fixed_ctc_annual, variable_ctc_annual=0):
     fixed = max(0.0, float(fixed_ctc_annual or 0))
     variable = max(0.0, float(variable_ctc_annual or 0))
-    return round(fixed + variable, 2)
+    return money2(fixed + variable)
 
 
 def parse_month_num(month):
@@ -209,15 +218,15 @@ def _clamp_hra_pct(hra_pct):
     return val
 
 
-def gratuity_yearly(basic_salary=0, dearness_allowance=0):
+def gratuity_monthly(basic_salary=0, dearness_allowance=0):
     wage = pf_wage_monthly(basic_salary, dearness_allowance)
     if wage <= 0:
         return 0.0
-    return wage / 26.0 * 15.0
+    return money2((wage / 26.0 * 15.0) / 12.0)
 
 
-def gratuity_monthly(basic_salary=0, dearness_allowance=0):
-    return gratuity_yearly(basic_salary, dearness_allowance) / 12.0
+def gratuity_yearly(basic_salary=0, dearness_allowance=0):
+    return annualize_monthly(gratuity_monthly(basic_salary, dearness_allowance))
 
 
 def pf_wage_capped(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
@@ -230,50 +239,56 @@ def pf_wage_capped(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestri
     return min(wage, cap)
 
 
-def employer_pf_yearly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
-    wage = pf_wage_capped(
-        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
-    )
-    return wage * (PF_RATE / 100.0) * 12.0
-
-
 def employer_pf_monthly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
-    return employer_pf_yearly(
-        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
-    ) / 12.0
-
-
-def pf_admin_yearly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
     wage = pf_wage_capped(
         basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
     )
-    if wage <= 0:
-        return 0.0
-    return wage * (PF_ADMIN_PCT / 100.0) * 12.0
+    return money2(wage * (PF_RATE / 100.0))
+
+
+def employer_pf_yearly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
+    return annualize_monthly(
+        employer_pf_monthly(
+            basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
+        )
+    )
 
 
 def pf_admin_monthly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
-    return pf_admin_yearly(
-        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
-    ) / 12.0
-
-
-def edli_yearly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
     wage = pf_wage_capped(
         basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
     )
     if wage <= 0:
         return 0.0
-    return wage * (EDLI_EMPLOYER_PCT / 100.0) * 12.0
+    return money2(wage * (PF_ADMIN_PCT / 100.0))
+
+
+def pf_admin_yearly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
+    return annualize_monthly(
+        pf_admin_monthly(
+            basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
+        )
+    )
 
 
 def edli_monthly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
-    return edli_yearly(
+    wage = pf_wage_capped(
         basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
-    ) / 12.0
+    )
+    if wage <= 0:
+        return 0.0
+    return money2(wage * (EDLI_EMPLOYER_PCT / 100.0))
 
 
-def statutory_bonus_yearly(
+def edli_yearly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
+    return annualize_monthly(
+        edli_monthly(
+            basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
+        )
+    )
+
+
+def statutory_bonus_monthly(
     basic_salary=0,
     dearness_allowance=0,
     bonus_pct=STATUTORY_BONUS_PCT_DEFAULT,
@@ -286,10 +301,10 @@ def statutory_bonus_yearly(
         return 0.0
     if apply_eligibility and wage > float(bonus_wage_cap or STATUTORY_BONUS_WAGE_CAP):
         return 0.0
-    return wage * 12.0 * float(bonus_pct or STATUTORY_BONUS_PCT_DEFAULT) / 100.0
+    return money2(wage * float(bonus_pct or STATUTORY_BONUS_PCT_DEFAULT) / 100.0)
 
 
-def statutory_bonus_monthly(
+def statutory_bonus_yearly(
     basic_salary=0,
     dearness_allowance=0,
     bonus_pct=STATUTORY_BONUS_PCT_DEFAULT,
@@ -297,13 +312,15 @@ def statutory_bonus_monthly(
     apply_eligibility=True,
     bonus_wage_cap=STATUTORY_BONUS_WAGE_CAP,
 ):
-    return statutory_bonus_yearly(
-        basic_salary,
-        dearness_allowance,
-        bonus_pct,
-        apply_eligibility=apply_eligibility,
-        bonus_wage_cap=bonus_wage_cap,
-    ) / 12.0
+    return annualize_monthly(
+        statutory_bonus_monthly(
+            basic_salary,
+            dearness_allowance,
+            bonus_pct,
+            apply_eligibility=apply_eligibility,
+            bonus_wage_cap=bonus_wage_cap,
+        )
+    )
 
 
 def lwf_employer_yearly(lwf_employer_yearly_amount=12.0):
@@ -341,17 +358,17 @@ def apply_allowance_caps(
     return heads, total
 
 
-def employer_esic_yearly(monthly_gross, *, once_covered=False):
+def employer_esic_monthly(monthly_gross, *, once_covered=False):
     g = float(monthly_gross or 0)
     if g <= 0:
         return 0.0
     if g >= ESIC_GROSS_CAP and not once_covered:
         return 0.0
-    return g * (ESIC_EMPLOYER_PCT / 100.0) * 12.0
+    return money2(g * (ESIC_EMPLOYER_PCT / 100.0))
 
 
-def employer_esic_monthly(monthly_gross, *, once_covered=False):
-    return employer_esic_yearly(monthly_gross, once_covered=once_covered) / 12.0
+def employer_esic_yearly(monthly_gross, *, once_covered=False):
+    return annualize_monthly(employer_esic_monthly(monthly_gross, once_covered=once_covered))
 
 
 def employee_esic_monthly(monthly_gross, *, once_covered=False):
@@ -360,7 +377,7 @@ def employee_esic_monthly(monthly_gross, *, once_covered=False):
         return 0.0
     if g >= ESIC_GROSS_CAP and not once_covered:
         return 0.0
-    return g * (ESIC_EMPLOYEE_PCT / 100.0)
+    return money2(g * (ESIC_EMPLOYEE_PCT / 100.0))
 
 
 def _annual_ctc_raw(
@@ -769,13 +786,17 @@ def employer_costs_summary(
     wage_capped = pf_wage_capped(
         basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted_pf
     )
-    eps = min(round(wage_capped * float(pack.get("eps_rate") or 8.33) / 100.0, 2), float(pack.get("eps_contrib_max") or 2082.5))
-    employer_pf_m = round(wage_capped * (PF_RATE / 100.0), 2)
+    eps = min(
+        money2(wage_capped * float(pack.get("eps_rate") or 8.33) / 100.0),
+        float(pack.get("eps_contrib_max") or 2082.5),
+    )
+    employer_pf_m = employer_pf_monthly(basic_salary, dearness_allowance, **pf_kw)
+    epf_er_m = money2(max(0.0, employer_pf_m - eps))
     eps_split = {
-        "eps_contribution_monthly": round(eps, 2),
-        "eps_contribution_yearly": round(eps * 12, 2),
-        "epf_er_contribution_monthly": round(max(0.0, employer_pf_m - eps), 2),
-        "epf_er_contribution_yearly": round(max(0.0, employer_pf_m - eps) * 12, 2),
+        "eps_contribution_monthly": money2(eps),
+        "eps_contribution_yearly": annualize_monthly(eps),
+        "epf_er_contribution_monthly": epf_er_m,
+        "epf_er_contribution_yearly": annualize_monthly(epf_er_m),
     }
     nps_employer_monthly = nps_employer_yearly = None
     if include_nps_in_ctc:
@@ -799,29 +820,44 @@ def employer_costs_summary(
         )
         if include_nps_in_ctc else 0.0
     )
+    pf_admin_m = pf_admin_monthly(basic_salary, dearness_allowance, **pf_kw) if include_pf_admin_in_ctc else 0.0
+    edli_m = edli_monthly(basic_salary, dearness_allowance, **pf_kw) if include_edli_in_ctc else 0.0
+    bonus_m = (
+        statutory_bonus_monthly(
+            basic_salary,
+            dearness_allowance,
+            statutory_bonus_pct,
+            apply_eligibility=apply_bonus_eligibility,
+        )
+        if include_statutory_bonus_in_ctc else 0.0
+    )
+    lwf_m = money2(lwf_y / 12.0) if include_lwf_in_ctc else 0.0
+    nps_m_r = money2(nps_m)
+    esic_m = employer_esic_monthly(monthly_gross, once_covered=esic_once_covered)
+    grat_m = gratuity_monthly(basic_salary, dearness_allowance)
     return {
-        "gratuity_yearly": round(gratuity_yearly(basic_salary, dearness_allowance), 2),
-        "gratuity_monthly": round(gratuity_monthly(basic_salary, dearness_allowance), 2),
-        "employer_pf_yearly": round(employer_pf_yearly(basic_salary, dearness_allowance, **pf_kw), 2),
-        "employer_pf_monthly": round(employer_pf_monthly(basic_salary, dearness_allowance, **pf_kw), 2),
-        "pf_admin_yearly": round(pf_admin_y, 2),
-        "pf_admin_monthly": round(pf_admin_y / 12.0, 2),
-        "edli_yearly": round(edli_y, 2),
-        "edli_monthly": round(edli_y / 12.0, 2),
-        "statutory_bonus_yearly": round(bonus_y, 2),
-        "statutory_bonus_monthly": round(bonus_y / 12.0, 2),
-        "lwf_employer_yearly": round(lwf_y, 2),
-        "lwf_employer_monthly": round(lwf_y / 12.0, 2),
-        "employer_esic_yearly": round(employer_esic_yearly(monthly_gross, once_covered=esic_once_covered), 2),
-        "employer_esic_monthly": round(employer_esic_monthly(monthly_gross, once_covered=esic_once_covered), 2),
-        "mediclaim_yearly": round(float(mediclaim_yearly or 0), 2),
+        "gratuity_yearly": annualize_monthly(grat_m),
+        "gratuity_monthly": money2(grat_m),
+        "employer_pf_yearly": annualize_monthly(employer_pf_m),
+        "employer_pf_monthly": money2(employer_pf_m),
+        "pf_admin_yearly": annualize_monthly(pf_admin_m),
+        "pf_admin_monthly": money2(pf_admin_m),
+        "edli_yearly": annualize_monthly(edli_m),
+        "edli_monthly": money2(edli_m),
+        "statutory_bonus_yearly": annualize_monthly(bonus_m),
+        "statutory_bonus_monthly": money2(bonus_m),
+        "lwf_employer_yearly": annualize_monthly(lwf_m),
+        "lwf_employer_monthly": money2(lwf_m),
+        "employer_esic_yearly": annualize_monthly(esic_m),
+        "employer_esic_monthly": money2(esic_m),
+        "mediclaim_yearly": money2(mediclaim_yearly),
         "include_pf_admin_in_ctc": bool(include_pf_admin_in_ctc),
         "include_edli_in_ctc": bool(include_edli_in_ctc),
         "include_statutory_bonus_in_ctc": bool(include_statutory_bonus_in_ctc),
         "include_lwf_in_ctc": bool(include_lwf_in_ctc),
         "include_nps_in_ctc": bool(include_nps_in_ctc),
-        "nps_employer_monthly": round(nps_m, 2),
-        "nps_employer_yearly": round(nps_y, 2),
+        "nps_employer_monthly": nps_m_r,
+        "nps_employer_yearly": annualize_monthly(nps_m_r),
         "eps_contribution_monthly": eps_split["eps_contribution_monthly"],
         "eps_contribution_yearly": eps_split["eps_contribution_yearly"],
         "epf_er_contribution_monthly": eps_split["epf_er_contribution_monthly"],

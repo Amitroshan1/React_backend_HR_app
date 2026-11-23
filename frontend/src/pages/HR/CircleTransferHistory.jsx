@@ -3,11 +3,12 @@ import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { ArrowLeft, Search } from "lucide-react";
 import "./CircleTransferHistory.css";
 import { formatDate } from "../../utils/dateFormat";
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = "/api/HumanResource";
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 

@@ -5,6 +5,7 @@ import {AccordionCard} from '../AccordionCard';
 import {Input} from '../../common/Input';
 import {Button} from '../../common/Button'; // Assuming Button is available
 import {Info} from '../../common/Info'; // Assuming Info is available
+import { previousEmploymentDateBounds } from '../../../utils/profileUtils';
 
 // Helper for displaying a single previous employment entry in view mode
 const ViewEmploymentEntry = ({ entry, index }) => (
@@ -27,9 +28,12 @@ export const PreviousEmploymentSection = ({
     onAddPrevEmp,
     onRemovePrevEmp,
     errors,
+    dateOfBirth,
+    dateOfJoining,
 }) => {
     const isEditMode = mode === 'edit';
     const sectionName = 'previousEmployment';
+    const dateBounds = previousEmploymentDateBounds({ dateOfBirth, dateOfJoining });
 
     // Check for validation errors on any field within this section
     const hasErrors = prevEmpData.some((_, index) => 
@@ -87,14 +91,20 @@ export const PreviousEmploymentSection = ({
                                 value={entry.dateOfLeaving} 
                                 onChange={(e) => onPrevEmpChange(index, e.target.name, e.target.value)}
                                 error={errors[`${indexPrefix}dateOfLeaving`]}
+                                min={dateBounds.min}
+                                max={dateBounds.max}
                             />
                             <Input 
                                 label="Experience (Years)" 
                                 name="experienceYears" 
                                 type="number"
+                                min={0}
+                                max={50}
+                                step={0.1}
                                 value={entry.experienceYears} 
                                 onChange={(e) => onPrevEmpChange(index, e.target.name, e.target.value)}
                                 error={errors[`${indexPrefix}experienceYears`]}
+                                helpText="0 to 50 years, one decimal (e.g. 2.5)"
                             />
                             <div/> {/* Spacer */}
                         </div>

@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, CalendarClock, History, Lock, ShieldCheck, Users } from 'lucide-react';
+import { ArrowRight, CalendarClock, Lock, ShieldCheck, Users } from 'lucide-react';
 import { HR_LEAVE_API_BASE, getHrAuthHeaders } from './HRApplyLeaveOnBehalf';
 
 const DAY_FIELDS = [
   { key: 'max_hr_backdate_days', label: 'HR backdate limit', hint: 'How far back HR may apply leave for an employee.' },
-  { key: 'max_regularization_backdate_days', label: 'Regularization backdate limit', hint: 'How far back attendance can be regularized.' },
 ];
 
 const CHECK_FIELDS = [
@@ -23,7 +22,6 @@ function buildRules(saved) {
   if (!saved) return [];
   return [
     { key: 'hr', icon: <CalendarClock size={16} />, label: 'HR backdate', value: `${saved.max_hr_backdate_days} days` },
-    { key: 'reg', icon: <History size={16} />, label: 'Regularization', value: `${saved.max_regularization_backdate_days} days` },
     {
       key: 'lock',
       icon: <Lock size={16} />,

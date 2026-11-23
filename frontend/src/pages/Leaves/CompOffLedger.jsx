@@ -4,6 +4,7 @@ import { FiArrowLeft, FiInfo } from 'react-icons/fi';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
 import './CompOffLedger.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE_URL = '/api/leave';
 
@@ -126,7 +127,7 @@ export const CompOffLedger = ({
     setLoading(true);
     setError('');
     try {
-      const token = localStorage.getItem('token');
+      const token = getAccessToken();
       const url = isHrView
         ? `/api/HumanResource/employees/${employeeId}/compoff/ledger`
         : `${API_BASE_URL}/compoff/ledger`;

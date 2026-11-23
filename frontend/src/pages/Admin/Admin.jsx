@@ -10,6 +10,7 @@ import { markAdminDepartmentVisit } from './adminVisit';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './AdminDashboard.css';
+import { getAccessToken, hasSignedInHint } from "../../utils/authSession";
 
 const ADMIN_DASHBOARD_API = '/api/admin/dashboard';
 const CUSTOMERS_API = '/api/admin/customers';
@@ -76,16 +77,17 @@ const Admin = () => {
   const [pendingRequests, setPendingRequests] = useState(0);
 
   const loadDashboard = useCallback(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
+    const token = getAccessToken();
+    if (!token && !hasSignedInHint()) {
       setLoading(false);
       setFailed(true);
       return;
     }
     setLoading(true);
     setFailed(false);
-    const headers = { Authorization: `Bearer ${token}` };
-    fetch(ADMIN_DASHBOARD_API, { headers })
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    fetch(ADMIN_DASHBOARD_API, { headers, credentials: "include" })
       .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
       .then(async ({ ok, data }) => {
         if (!ok || !data.success) {
@@ -97,7 +99,7 @@ const Admin = () => {
         const platform = Boolean(data.can_manage_customers ?? data.can_view_deployment_guide);
         setCanViewCompanies(platform);
         try {
-          const pendingRes = await fetch('/api/admin/employee-change-requests?status=pending', { headers });
+          const pendingRes = await fetch('/api/admin/employee-change-requests?status=pending', { headers, credentials: "include" });
           const pendingData = await pendingRes.json().catch(() => ({}));
           const count = pendingRes.ok && pendingData.success
             ? Number(pendingData.count ?? pendingData.requests?.length ?? 0)
@@ -113,7 +115,7 @@ const Admin = () => {
           return;
         }
         try {
-          const custRes = await fetch(CUSTOMERS_API, { headers });
+          const custRes = await fetch(CUSTOMERS_API, { headers, credentials: "include" });
           const custData = await custRes.json().catch(() => ({}));
           if (custRes.ok && custData.success) {
             setCustomers(custData.customers || []);

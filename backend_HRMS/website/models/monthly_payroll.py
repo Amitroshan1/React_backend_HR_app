@@ -2,6 +2,7 @@ from datetime import datetime
 
 from .. import db
 from ..datetime_utils import isoformat_api, utc_now
+from ..money import Money
 
 
 class MonthlyPayroll(db.Model):
@@ -23,46 +24,47 @@ class MonthlyPayroll(db.Model):
     year = db.Column(db.String(4), nullable=False)  # e.g. "2026"
 
     # Gross salary (CTC breakup gross prorated by calendar days, then adjusted by actual working days)
-    ctc_gross_salary = db.Column(db.Float, nullable=True)
+    ctc_gross_salary = db.Column(Money(), nullable=True)
     calendar_days = db.Column(db.Integer, nullable=True)
-    one_day_salary = db.Column(db.Float, nullable=True)
+    one_day_salary = db.Column(Money(), nullable=True)
     actual_working_days = db.Column(db.Float, nullable=True)
-    gross_salary_for_month = db.Column(db.Float, nullable=True)
+    gross_salary_for_month = db.Column(Money(), nullable=True)
 
     # Deductions from CTC (computed) and editable finals (saved by Accounts)
-    epf_computed = db.Column(db.Float, nullable=True)
-    esic_computed = db.Column(db.Float, nullable=True)
-    ptax_computed = db.Column(db.Float, nullable=True)
+    epf_computed = db.Column(Money(), nullable=True)
+    esic_computed = db.Column(Money(), nullable=True)
+    ptax_computed = db.Column(Money(), nullable=True)
 
-    tds_computed = db.Column(db.Float, nullable=True)
-    tds_final = db.Column(db.Float, nullable=True)
+    tds_computed = db.Column(Money(), nullable=True)
+    tds_final = db.Column(Money(), nullable=True)
 
-    epf_final = db.Column(db.Float, nullable=True)
-    esic_final = db.Column(db.Float, nullable=True)
-    ptax_final = db.Column(db.Float, nullable=True)
-    lwf_computed = db.Column(db.Float, nullable=True)
-    lwf_final = db.Column(db.Float, nullable=True)
+    epf_final = db.Column(Money(), nullable=True)
+    esic_final = db.Column(Money(), nullable=True)
+    ptax_final = db.Column(Money(), nullable=True)
+    lwf_computed = db.Column(Money(), nullable=True)
+    lwf_final = db.Column(Money(), nullable=True)
 
-    arrears_gross_computed = db.Column(db.Float, nullable=True)
-    arrears_gross_final = db.Column(db.Float, nullable=True)
+    arrears_gross_computed = db.Column(Money(), nullable=True)
+    arrears_gross_final = db.Column(Money(), nullable=True)
 
-    leave_encashment_computed = db.Column(db.Float, nullable=True)
-    leave_encashment_final = db.Column(db.Float, nullable=True)
-    loan_recovery_computed = db.Column(db.Float, nullable=True)
-    loan_recovery_final = db.Column(db.Float, nullable=True)
+    leave_encashment_computed = db.Column(Money(), nullable=True)
+    leave_encashment_final = db.Column(Money(), nullable=True)
+    loan_recovery_computed = db.Column(Money(), nullable=True)
+    loan_recovery_final = db.Column(Money(), nullable=True)
 
-    reimbursement_computed = db.Column(db.Float, nullable=True)
-    reimbursement_final = db.Column(db.Float, nullable=True)
+    reimbursement_computed = db.Column(Money(), nullable=True)
+    reimbursement_final = db.Column(Money(), nullable=True)
 
-    statutory_bonus_computed = db.Column(db.Float, nullable=True)
-    statutory_bonus_final = db.Column(db.Float, nullable=True)
+    statutory_bonus_computed = db.Column(Money(), nullable=True)
+    statutory_bonus_final = db.Column(Money(), nullable=True)
 
     status = db.Column(db.String(20), nullable=False, default="draft")
     status_changed_at = db.Column(db.DateTime, nullable=True)
     status_changed_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
 
-    deductions_total_final = db.Column(db.Float, nullable=True)
-    net_salary_final = db.Column(db.Float, nullable=True)
+    deductions_total_final = db.Column(Money(), nullable=True)
+    net_salary_final = db.Column(Money(), nullable=True)
+    amount_blob = db.Column(db.LargeBinary, nullable=True)
 
     created_at = db.Column(db.DateTime, nullable=True, default=utc_now)
     updated_at = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)

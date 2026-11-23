@@ -7,6 +7,7 @@ import { formatDateTimeDDMMYYYY, formatMonthYear } from "../../utils/dateFormat"
 import { formatCtcRupee, resolveAnnualCtcTotal, resolveTotalCtcAnnual, buildCtcEarningsRows } from "../../utils/ctcBreakupDisplay";
 import { authHeaders, clearSensitiveToken, isSensitiveAuthError } from "../../utils/sensitiveDataAuth";
 import { LockSensitiveDataButton } from "../../components/security/SensitiveDataGate";
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE_URL = "/api/accounts";
 const AUTH_API_BASE_URL = "/api/auth";
@@ -60,7 +61,7 @@ export const Payslip = () => {
             setError("User not loaded.");
             return;
         }
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) {
             setLoading(false);
             setError("Please log in.");
@@ -136,7 +137,7 @@ export const Payslip = () => {
 
     const handleDownload = async (row) => {
         if (!row?.file_path) return;
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) {
             alert("Please log in to download.");
             return;
@@ -176,7 +177,7 @@ export const Payslip = () => {
 
     const handlePayrollDownload = async (row) => {
         if (!row?.id) return;
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) {
             alert("Please log in to download.");
             return;

@@ -164,6 +164,11 @@ def _accounts_plan_guard():
     if not can_access_accounts_panel(claims):
         return plan_forbidden_response("account_panel")
 
+    from .kyb_gates import accounts_path_needs_kyb, kyb_forbidden_response, tenant_kyb_allows_statutory
+
+    if accounts_path_needs_kyb(path) and not tenant_kyb_allows_statutory():
+        return kyb_forbidden_response()
+
     for feature, prefixes in _ACCOUNTS_ROUTE_FEATURES:
         if any(p in path for p in prefixes) and not has_feature(feature):
             return plan_forbidden_response(feature)
@@ -592,6 +597,14 @@ def _sync_ctc_allowance_heads(row):
     elif row.other_allowance and float(row.other_allowance or 0) > 0:
         if not float(row.special_allowance or 0):
             row.special_allowance = float(row.other_allowance or 0)
+
+
+def _compensation_read_decision(admin, target_admin_id, *, export=False):
+    from .compensation_visibility import access_flask_error, evaluate_compensation_access
+
+    decision = evaluate_compensation_access(admin, target_admin_id, export=export)
+    err = access_flask_error(decision)
+    return err, decision
 
 
 def _can_edit_employee_ctc(admin) -> bool:
@@ -2037,18 +2050,6 @@ def get_ctc_breakup(admin_id):
             "message": "Unauthorized user"
         }), 401
 
-    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
-    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
-    if not can_view_any and admin_id != admin.id:
-        return jsonify({
-            "success": False,
-            "message": "You can only view your own CTC breakup"
-        }), 403
-
-    blocked = require_sensitive_for_employee(admin, admin_id)
-    if blocked:
-        return blocked
-
     target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({
@@ -2056,16 +2057,22 @@ def get_ctc_breakup(admin_id):
             "message": "Employee not found"
         }), 404
 
+    err, decision = _compensation_read_decision(admin, admin_id)
+    if err:
+        return err
+
     from . import ctc_approval_service as ctc_appr
+    from .compensation_visibility import apply_visibility, log_compensation_view
 
     row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
     pending = ctc_appr.pending_for_employee(admin_id)
-    return jsonify({
+    log_compensation_view(admin, admin_id, "ctc_breakup", decision.status)
+    return jsonify(apply_visibility({
         "success": True,
         "ctc_breakup": _ctc_dict_with_advanced(row) if row else None,
         "pending_request": pending.to_dict() if pending else None,
         "approval": ctc_appr.approval_settings(),
-    }), 200
+    }, decision)), 200
 
 
 @Accounts.route("/ctc-breakup/<int:admin_id>/pdf", methods=["GET"])
@@ -2078,23 +2085,16 @@ def download_ctc_annexure_pdf(admin_id):
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
-    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
-    can_view_any = emp_type_lower in (
-        "account", "accounts", "accountant", "hr", "human resource", "admin"
-    )
-    if not can_view_any and admin_id != admin.id:
-        return jsonify({
-            "success": False,
-            "message": "You can only download your own CTC annexure",
-        }), 403
-
-    blocked = require_sensitive_for_employee(admin, admin_id)
-    if blocked:
-        return blocked
-
     target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    err, decision = _compensation_read_decision(admin, admin_id, export=True)
+    if err:
+        return err
+    from .compensation_visibility import log_compensation_view
+
+    log_compensation_view(admin, admin_id, "ctc_breakup_pdf", decision.status)
 
     row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
     if not row:
@@ -2158,7 +2158,13 @@ def ctc_recalc_candidates():
     if not admin or not _can_edit_employee_ctc(admin):
         return jsonify({"success": False, "message": "Access denied"}), 403
     from . import ctc_approval_service as ctc_appr
-    return jsonify({"success": True, "candidates": ctc_appr.recalc_candidates()}), 200
+    caps = ctc_appr.recalc_queue_caps()
+    return jsonify({
+        "success": True,
+        "candidates": ctc_appr.recalc_candidates(),
+        "previous_pf_wage_cap_monthly": caps["previous_pf_wage_cap_monthly"],
+        "current_pf_wage_cap_monthly": caps["current_pf_wage_cap_monthly"],
+    }), 200
 
 
 @Accounts.route("/ctc-policy/adopt-pack", methods=["POST"])
@@ -2617,15 +2623,19 @@ def ctc_breakup_revisions(admin_id):
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
-    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
-    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
-    if not can_view_any and admin_id != admin.id:
-        return jsonify({"success": False, "message": "Access denied"}), 403
+    if not get_admin_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
-    return jsonify({
+    err, decision = _compensation_read_decision(admin, admin_id)
+    if err:
+        return err
+    from .compensation_visibility import apply_visibility, log_compensation_view
+
+    log_compensation_view(admin, admin_id, "ctc_revisions", decision.status)
+    return jsonify(apply_visibility({
         "success": True,
         "revisions": ctc_rev.list_ctc_revisions(admin_id),
-    }), 200
+    }, decision)), 200
 
 
 @Accounts.route("/ctc-breakup/arrears-preview", methods=["POST"])
@@ -2710,18 +2720,6 @@ def ctc_breakup_history(admin_id):
             "message": "Unauthorized user"
         }), 401
 
-    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
-    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
-    if not can_view_any and admin_id != admin.id:
-        return jsonify({
-            "success": False,
-            "message": "You can only view your own CTC breakup history"
-        }), 403
-
-    blocked = require_sensitive_for_employee(admin, admin_id)
-    if blocked:
-        return blocked
-
     target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({
@@ -2729,14 +2727,20 @@ def ctc_breakup_history(admin_id):
             "message": "Employee not found"
         }), 404
 
+    err, decision = _compensation_read_decision(admin, admin_id)
+    if err:
+        return err
+    from .compensation_visibility import apply_visibility, log_compensation_view
+
     rows = ctc_rev.list_ctc_revisions(admin_id)
     if not rows:
         row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
         rows = [row.to_dict()] if row else []
-    return jsonify({
+    log_compensation_view(admin, admin_id, "ctc_history", decision.status)
+    return jsonify(apply_visibility({
         "success": True,
         "history": rows
-    }), 200
+    }, decision)), 200
 
 
 def _parse_iso_date(val):
@@ -4736,6 +4740,9 @@ def download_payroll_slip(payroll_id):
     if not payroll or not admin_id_in_tenant(payroll.admin_id):
         return jsonify({"success": False, "message": "Payroll record not found"}), 404
 
+    err, decision = _compensation_read_decision(viewer, payroll.admin_id, export=True)
+    if err:
+        return err
     if not _accounts_can_access_any_profile(viewer) and payroll.admin_id != viewer.id:
         return jsonify({"success": False, "message": "Access denied"}), 403
     if (
@@ -4920,7 +4927,7 @@ def download_payroll_slip(payroll_id):
 
     y = height - 32
     c.setFont("Helvetica-Bold", 16)
-    c.drawCentredString(width / 2, y, "Saffo Solution Technology LLP")
+    c.drawCentredString(width / 2, y, "Saffo Solution Technology")
     y -= 15
     c.setFont("Helvetica", 10)
     c.drawCentredString(width / 2, y, "405, A Wing, 4th Floor")
@@ -5154,7 +5161,7 @@ def download_payroll_slip(payroll_id):
     c.setLineWidth(0.45)
     c.line(right_margin - 200, sig_y + 28, right_margin, sig_y + 28)
     c.setFont("Helvetica-Bold", 10.5)
-    c.drawRightString(right_margin, sig_y + 12, "for Saffo Solution Technology LLP")
+    c.drawRightString(right_margin, sig_y + 12, "for Saffo Solution Technology")
     c.setFont("Helvetica", 10)
     c.drawRightString(right_margin, sig_y - 4, "Authorised Signatory")
 
@@ -5395,6 +5402,16 @@ def get_employee_accounts_profile():
     auto_designation = _str_or_none(getattr(employee_details, "designation", None)) if employee_details else None
     auto_doj = _date_iso(getattr(target_admin, "doj", None))
 
+    from .compensation_visibility import CompensationAccess, FULL as _VIS_FULL
+    from .compensation_visibility import is_hr_viewer, is_payroll_full_role
+
+    if int(target_admin.id) != int(viewer.id) or is_payroll_full_role(viewer) or is_hr_viewer(viewer):
+        err, decision = _compensation_read_decision(viewer, target_admin.id)
+        if err:
+            return err
+    else:
+        decision = CompensationAccess(_VIS_FULL, own=True)
+
     profile = {
         "id": base.get("id"),
         "admin_id": base.get("admin_id"),
@@ -5414,17 +5431,20 @@ def get_employee_accounts_profile():
         "updated_at": base.get("updated_at"),
     }
 
-    return jsonify({
-        "success": True,
-        "admin": {
-            "id": target_admin.id,
-            "emp_id": target_admin.emp_id,
-            "first_name": target_admin.first_name,
-            "email": target_admin.email,
-            "doj": target_admin.doj.isoformat() if target_admin.doj else None,
-        },
-        "profile": profile,
-    }), 200
+    from .compensation_visibility import apply_visibility, last4, log_compensation_view
+
+    log_compensation_view(viewer, target_admin.id, "employee_accounts_profile", decision.status)
+    payload = apply_visibility({"success": True, "profile": profile}, decision)
+    if decision.status == "full" and profile.get("bank_details"):
+        payload["bank_last4"] = last4(profile.get("bank_details"))
+    payload["admin"] = {
+        "id": target_admin.id,
+        "emp_id": target_admin.emp_id,
+        "first_name": target_admin.first_name,
+        "email": target_admin.email,
+        "doj": target_admin.doj.isoformat() if target_admin.doj else None,
+    }
+    return jsonify(payload), 200
 
 
 @Accounts.route("/employee-accounts-profile", methods=["PUT"])

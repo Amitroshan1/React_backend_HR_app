@@ -994,17 +994,16 @@ def process_biometric_log(
             log, admin_id=admin_id, reason="day_closed"
         )
 
-    # Same leave gate as web punch-in (full-day blocks; half-day allowed)
-    if is_on_leave(admin_id, punch_date):
-        log.status = "ignored"
-        log.error_message = "on_leave"
-        logger.info(
-            "BIOMETRIC_IGNORED_LEAVE admin_id=%s date=%s log_id=%s",
-            admin_id,
-            punch_date,
-            log.id,
-        )
-        return log.status
+    # Leave/holiday: web requires a typed reason; the device cannot collect one.
+    # Record the punch (do not ignore) and tag the session for HR.
+    is_on_leave(admin_id, punch_date)
+    bio_override = None
+    try:
+        from ..utility import punch_work_override_context as _punch_override
+
+        bio_override = _punch_override(admin_id, punch_date)
+    except Exception:
+        bio_override = None
 
     # Fast path: attach to / respect any existing open session (no new IN).
     handled = _handle_existing_open_session(
@@ -1069,6 +1068,20 @@ def process_biometric_log(
             punch.id,
             log.id,
         )
+    if bio_override:
+        try:
+            sess.work_override_kind = bio_override.get("kind")
+            sess.work_override_reason = (
+                "Office device punch while on leave or a public holiday. "
+                "Reason was not captured at the machine."
+            )
+        except Exception:
+            logger.exception(
+                "BIOMETRIC_WORK_OVERRIDE_SET_FAILED admin_id=%s punch_id=%s log_id=%s",
+                admin_id,
+                punch.id,
+                log.id,
+            )
 
     db.session.add(sess)
     db.session.flush()

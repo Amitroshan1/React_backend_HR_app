@@ -208,11 +208,15 @@ def get_fnf_settlement(settlement_id: int) -> FnfSettlement | None:
 
 
 def _bank_details_for_admin(admin_id: int) -> dict:
+    from .pii_crypto import pii_get
+
     accounts = EmployeeAccounts.query.filter_by(admin_id=admin_id).first()
     upload = UploadDoc.query.filter_by(admin_id=admin_id).first()
-    parsed = parse_bank_details_text(getattr(accounts, "bank_details", None) if accounts else None)
+    parsed = parse_bank_details_text(
+        pii_get(accounts, "bank_details") if accounts else None
+    )
     acct = (
-        (getattr(upload, "bank_account_number", None) if upload else None)
+        (pii_get(upload, "bank_account_number") if upload else None)
         or parsed.get("bank_account_number")
     )
     ifsc = (

@@ -1,7 +1,8 @@
+import { getAccessToken } from "../../utils/authSession";
 const API_BASE = "/api/manager";
 
 function authHeaders() {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -159,7 +160,7 @@ export async function actOnManagerRequest(type, id, action) {
 }
 
 export async function uploadNocDepartmentRequest(requestId, file, apiBase = API_BASE) {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   const formData = new FormData();
   formData.append("file", file);
   const response = await fetch(`${apiBase}/noc-requests/${requestId}/upload`, {

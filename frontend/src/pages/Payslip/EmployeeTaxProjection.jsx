@@ -10,6 +10,7 @@ import {
 import { authHeaders } from "../../utils/sensitiveDataAuth";
 import { LockSensitiveDataButton } from "../../components/security/SensitiveDataGate";
 import "./EmployeeTaxProjection.css";
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE_URL = "/api/auth";
 const ACCOUNTS_API_URL = "/api/accounts";
@@ -97,7 +98,7 @@ export const EmployeeTaxProjection = () => {
             setTdsError("User not loaded.");
             return;
         }
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) {
             setCtcLoading(false);
             setTdsError("Please log in.");

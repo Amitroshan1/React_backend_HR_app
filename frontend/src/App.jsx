@@ -86,6 +86,7 @@ import SetPassword from "./pages/SetPassword";
 import { ExEmployeeDocumentsPublic } from "./pages/HR/ExEmployeeDocumentsPublic";
 import AssessmentTestPublic from "./pages/Assessment/AssessmentTestPublic";
 import OfferAcceptPublic from "./pages/HR/OfferAcceptPublic";
+import CompanyKybPublic from "./pages/Admin/CompanyKybPublic";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -134,6 +135,10 @@ export const App = () => {
     {
       path: "offer-accept",
       element: <OfferAcceptPublic />,
+    },
+    {
+      path: "company-kyb",
+      element: <CompanyKybPublic />,
     },
     {
       element: <AppLayout />,

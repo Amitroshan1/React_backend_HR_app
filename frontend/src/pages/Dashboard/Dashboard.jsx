@@ -40,6 +40,9 @@ import {
   evaluateTrustedLocation,
 } from "../../services/trustedLocationCache";
 import { getApiErrorMessage } from "../../utils/apiError";
+import { useUser } from "../../components/layout/UserContext";
+import { ProfileStatusPanel } from "../../components/dashboard/ProfileStatusPanel";
+import { getAccessToken } from "../../utils/authSession";
 const formatDate = (value) => formatDateDDMMYYYY(value, "N/A");
 
 const NEWS_FEED_VISIBLE_DAYS = 6;
@@ -442,6 +445,8 @@ function RecentActivityList({
 
 export const Dashboard = () => {
     const navigate = useNavigate();
+    const { profileStatus, refreshUserData } = useUser();
+    const [retryingProfile, setRetryingProfile] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isPunching, setIsPunching] = useState(false);
@@ -452,11 +457,18 @@ export const Dashboard = () => {
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (Date.now() - (parsed._ts || 0) < 60000) {
-                    return { lat: parsed.lat, lon: parsed.lon, error: parsed.error, isAvailable: parsed.isAvailable, isInRange: parsed.isInRange };
+                    return {
+                        lat: parsed.lat,
+                        lon: parsed.lon,
+                        error: parsed.error,
+                        isAvailable: parsed.isAvailable,
+                        isInRange: parsed.isInRange,
+                        isAcquiring: false,
+                    };
                 }
             }
         } catch {}
-        return { lat: null, lon: null, error: null, isAvailable: false, isInRange: false };
+        return { lat: null, lon: null, error: null, isAvailable: false, isInRange: false, isAcquiring: false };
     });
     const [geo, setGeo] = useState({
         zone: "NO_GPS",
@@ -474,6 +486,8 @@ export const Dashboard = () => {
      * Separate from UI `location` — always updated on successful poll.
      */
     const trustedLocationRef = useRef(null);
+    /** Force a dashboard GPS check (Retry / permission grant). Poll coords are never punched. */
+    const requestLocationRef = useRef(null);
     /** Presentation-only: age (seconds) when trusted cache is valid for instant punch. */
     const [instantPunchAgeSec, setInstantPunchAgeSec] = useState(null);
     const [dynamicData, setDynamicData] = useState({
@@ -489,6 +503,8 @@ export const Dashboard = () => {
     const [punchInDateTime, setPunchInDateTime] = useState(null);
     const [repeatPunchModalOpen, setRepeatPunchModalOpen] = useState(false);
     const [repeatPunchReason, setRepeatPunchReason] = useState("");
+    const [workOverrideModalOpen, setWorkOverrideModalOpen] = useState(false);
+    const [workOverrideReason, setWorkOverrideReason] = useState("");
     const [geoReasonModalOpen, setGeoReasonModalOpen] = useState(false);
     const [geoReason, setGeoReason] = useState("");
     const [geoReasonMode, setGeoReasonMode] = useState("in"); // "in" | "out"
@@ -540,7 +556,7 @@ export const Dashboard = () => {
         console.table(out);
     };
     const fetchDashboardData = async (showAlert = false) => {
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         if (!token) return;
         try {
             const response = await fetch(`${API_BASE_URL}/employee/homepage`, {
@@ -564,6 +580,7 @@ export const Dashboard = () => {
                         working_hours: workingHours || punch.working_hours,
                         has_open_session: punch.has_open_session ?? !!(punch.punch_in && !punch.punch_out),
                         requires_repeat_punch_reason: !!punch.requires_repeat_punch_reason,
+                        requires_work_override_reason: !!punch.requires_work_override_reason,
                         sessions: Array.isArray(punch.sessions) ? punch.sessions : [],
                         session_attendance_date: punch.session_attendance_date || null,
                     },
@@ -640,7 +657,7 @@ export const Dashboard = () => {
     const runAutoCapPunchOut = useCallback(async (capIso) => {
         if (autoCapPunchOutRef.current) return;
         autoCapPunchOutRef.current = true;
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) {
             autoCapPunchOutRef.current = false;
             return;
@@ -750,7 +767,7 @@ export const Dashboard = () => {
     ]);
 
     const fetchNewsFeed = async () => {
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         if (!token) return;
         try {
             const res = await fetch(`${API_BASE_URL}/news-feed`, {
@@ -818,7 +835,7 @@ export const Dashboard = () => {
     };
   }, [newsFeed.length, newsFeedScrollPaused, loopedNewsFeed.length]);
   const validateLocationRange = async (lat, lon, accuracyM = null) => {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
     if (!token)
       return { in_range: false, requires_reason: true, zone: "NO_GPS" };
     try {
@@ -882,6 +899,9 @@ export const Dashboard = () => {
         const lastCheckRef = { ts: 0 };
         let locationCheckInFlight = false;
         let pollTimer = null;
+        let recoverTimer = null;
+        let recoverUntil = 0;
+        let lastGeoErrorCode = null;
         let alive = true;
 
         // Load server config in background; update values if different
@@ -897,6 +917,14 @@ export const Dashboard = () => {
             LA_MAX_AGE = d.lowAccuracyMaxAgeMs;
         });
 
+        const clearRecover = () => {
+            recoverUntil = 0;
+            if (recoverTimer) {
+                clearTimeout(recoverTimer);
+                recoverTimer = null;
+            }
+        };
+
         const applyPosition = async (position) => {
             if (!alive) return;
             const lat = position.coords.latitude;
@@ -904,6 +932,8 @@ export const Dashboard = () => {
             const accuracyM = Number(position.coords.accuracy);
             lastCheckRef.ts = Date.now();
             locationCheckInFlight = false;
+            lastGeoErrorCode = null;
+            clearRecover();
             const locationData = await validateLocationRange(
                 lat,
                 lon,
@@ -915,7 +945,14 @@ export const Dashboard = () => {
             const errorMessage = inRange || zone === "NO_OFFICE_CONFIG"
                 ? null
                 : "You are outside office range. Punch In/Out requires a reason.";
-            const next = { lat, lon, error: errorMessage, isAvailable: true, isInRange: inRange };
+            const next = {
+                lat,
+                lon,
+                error: errorMessage,
+                isAvailable: true,
+                isInRange: inRange,
+                isAcquiring: false,
+            };
             // Always refresh trusted snapshot (even when UI badge fields are unchanged).
             trustedLocationRef.current = buildTrustedSnapshot({
                 lat,
@@ -929,7 +966,8 @@ export const Dashboard = () => {
                     prev.isAvailable === next.isAvailable &&
                     prev.error === next.error &&
                     prev.lat === next.lat &&
-                    prev.lon === next.lon
+                    prev.lon === next.lon &&
+                    prev.isAcquiring === next.isAcquiring
                 ) {
                     return prev;
                 }
@@ -950,20 +988,57 @@ export const Dashboard = () => {
             } catch {}
         };
 
+        const geoErrorMessage = (err) => {
+            const code = err?.code;
+            if (code === 1) {
+                return "Location permission denied. Allow this site in the browser lock/address bar, then tap Retry location.";
+            }
+            if (code === 2) {
+                return "Location is off on this device. Turn on GPS / location services, then tap Retry location.";
+            }
+            if (code === 3) {
+                return "Location is taking too long. Move near a window and tap Retry location.";
+            }
+            if (!navigator.geolocation) {
+                return "Geolocation not supported by this browser.";
+            }
+            return "Location unavailable. Punch In/Out will request GPS when you tap the button.";
+        };
+
+        const scheduleRecover = (code) => {
+            if (code === 1) return;
+            recoverUntil = Date.now() + 15000;
+            if (recoverTimer) return;
+            const tick = () => {
+                recoverTimer = null;
+                if (!alive) return;
+                if (Date.now() > recoverUntil) return;
+                if (!locationCheckInFlight) {
+                    checkLocation(true, { force: true });
+                }
+                recoverTimer = setTimeout(tick, 2500);
+            };
+            recoverTimer = setTimeout(tick, 2500);
+        };
+
         const onError = (err) => {
             locationCheckInFlight = false;
             if (!alive) return;
-            console.warn(`Geolocation Error: ${err.code} - ${err.message}`);
+            lastGeoErrorCode = err?.code ?? null;
+            console.warn(`Geolocation Error: ${err?.code} - ${err?.message}`);
             trustedLocationRef.current = null;
             setLocation((prev) => ({
                 ...prev,
-                error: "Location access denied or unavailable. Punch In/Out requires location.",
+                error: geoErrorMessage(err),
                 isAvailable: false,
                 isInRange: false,
+                isAcquiring: false,
             }));
+            scheduleRecover(err?.code);
         };
 
-        const checkLocation = (highAccuracy = false) => {
+        const checkLocation = (highAccuracy = false, opts = {}) => {
+            const force = !!opts.force;
             if (!alive || !navigator.geolocation) {
                 if (!navigator.geolocation) {
                     setLocation((prev) => ({
@@ -971,23 +1046,27 @@ export const Dashboard = () => {
                         error: "Geolocation not supported by this browser.",
                         isAvailable: false,
                         isInRange: false,
+                        isAcquiring: false,
                     }));
                 }
                 return;
             }
-            if (locationCheckInFlight) return;
-            if (Date.now() - lastCheckRef.ts < MIN_RECHECK_MS) return;
+            if (locationCheckInFlight && !force) return;
+            if (!force && Date.now() - lastCheckRef.ts < MIN_RECHECK_MS) return;
             locationCheckInFlight = true;
+            setLocation((prev) => ({ ...prev, isAcquiring: true }));
             navigator.geolocation.getCurrentPosition(
                 applyPosition,
                 onError,
                 {
                     enableHighAccuracy: highAccuracy,
                     timeout: highAccuracy ? HA_TIMEOUT : LA_TIMEOUT,
-                    maximumAge: highAccuracy ? HA_MAX_AGE : LA_MAX_AGE,
+                    maximumAge: force ? 0 : (highAccuracy ? HA_MAX_AGE : LA_MAX_AGE),
                 },
             );
         };
+
+        requestLocationRef.current = () => checkLocation(true, { force: true });
 
         const schedulePoll = () => {
             if (pollTimer) clearTimeout(pollTimer);
@@ -999,20 +1078,19 @@ export const Dashboard = () => {
             }, POLL_INTERVAL_MS);
         };
 
-        // Delay initial GPS until after paint
+        // Delay initial GPS until after paint (force: skip 45s lock)
         const initialId = (typeof window.requestIdleCallback === "function")
-            ? window.requestIdleCallback(() => { checkLocation(false); schedulePoll(); }, { timeout: IDLE_CB_TIMEOUT })
-            : setTimeout(() => { checkLocation(false); schedulePoll(); }, 100);
+            ? window.requestIdleCallback(() => { checkLocation(false, { force: true }); schedulePoll(); }, { timeout: IDLE_CB_TIMEOUT })
+            : setTimeout(() => { checkLocation(false, { force: true }); schedulePoll(); }, 100);
 
-        // High-accuracy refinement after configurable delay
-        const refineTimeout = setTimeout(() => checkLocation(true), REFINE_DELAY);
+        // High-accuracy refinement — force so MIN_RECHECK does not skip it
+        const refineTimeout = setTimeout(() => checkLocation(true, { force: true }), REFINE_DELAY);
 
-        // Visibility: suspend when hidden, refresh when visible again
         const onVisibility = () => {
             if (document.visibilityState === "visible") {
                 const age = Date.now() - lastCheckRef.ts;
                 if (age > STALE_THRESHOLD_MS) {
-                    checkLocation(true);
+                    checkLocation(true, { force: true });
                 } else if (age > MIN_RECHECK_MS) {
                     checkLocation(false);
                 }
@@ -1023,14 +1101,38 @@ export const Dashboard = () => {
         };
         document.addEventListener("visibilitychange", onVisibility);
 
-        // Network: refresh when coming back online
         const onOnline = () => {
-            if (document.visibilityState === "visible") checkLocation(true);
+            if (document.visibilityState === "visible") checkLocation(true, { force: true });
         };
         window.addEventListener("online", onOnline);
 
+        let permissionStatus = null;
+        const onPermissionChange = () => {
+            if (!alive) return;
+            const state = permissionStatus?.state;
+            if (state === "granted") {
+                checkLocation(true, { force: true });
+            }
+        };
+        if (typeof navigator !== "undefined" && navigator.permissions?.query) {
+            navigator.permissions.query({ name: "geolocation" }).then((status) => {
+                if (!alive) return;
+                permissionStatus = status;
+                if (typeof status.addEventListener === "function") {
+                    status.addEventListener("change", onPermissionChange);
+                } else {
+                    status.onchange = onPermissionChange;
+                }
+                if (status.state === "granted" && lastGeoErrorCode === 1) {
+                    checkLocation(true, { force: true });
+                }
+            }).catch(() => {});
+        }
+
         return () => {
             alive = false;
+            requestLocationRef.current = null;
+            clearRecover();
             if (typeof window.cancelIdleCallback === "function") {
                 window.cancelIdleCallback(initialId);
             } else {
@@ -1040,6 +1142,13 @@ export const Dashboard = () => {
             if (pollTimer) clearTimeout(pollTimer);
             document.removeEventListener("visibilitychange", onVisibility);
             window.removeEventListener("online", onOnline);
+            if (permissionStatus) {
+                if (typeof permissionStatus.removeEventListener === "function") {
+                    permissionStatus.removeEventListener("change", onPermissionChange);
+                } else {
+                    permissionStatus.onchange = null;
+                }
+            }
         };
     }, []);
 
@@ -1113,7 +1222,7 @@ export const Dashboard = () => {
         }
         setIsPunching(true);
         punchGps.setPunchState(punchGps.PunchGpsState.SUBMITTING, "Submitting attendance...");
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         const repeatTrim = (repeatPunchReasonParam || "").trim();
         const payload = {
             ...measurementToPunchFields(fix),
@@ -1122,6 +1231,11 @@ export const Dashboard = () => {
         };
         if (repeatTrim.length >= 3) {
             payload.repeat_punch_reason = repeatTrim;
+        }
+        const overrideTrim = workOverrideReason.trim();
+        const overrideMin = Number(dynamicData.punch.work_override_min_chars) || 20;
+        if (overrideTrim.length >= overrideMin) {
+            payload.work_override_reason = overrideTrim;
         }
         try {
             markPunchTiming("punchApiStart");
@@ -1138,6 +1252,8 @@ export const Dashboard = () => {
             if (response.ok && result.success) {
                 setRepeatPunchModalOpen(false);
                 setRepeatPunchReason("");
+                setWorkOverrideModalOpen(false);
+                setWorkOverrideReason("");
                 setGeoReasonModalOpen(false);
                 setGeoReason("");
                 punchMeasurementRef.current = null;
@@ -1161,6 +1277,9 @@ export const Dashboard = () => {
                     punchGps.setPunchState(punchGps.PunchGpsState.OUTSIDE);
                     setGeoReasonMode("in");
                     setGeoReasonModalOpen(true);
+                } else if (result.requires_work_override_reason) {
+                    setWorkOverrideModalOpen(true);
+                    punchGps.setPunchState(punchGps.PunchGpsState.READY);
                 } else if (result.requires_repeat_punch_reason) {
                     setRepeatPunchModalOpen(true);
                     punchGps.setPunchState(punchGps.PunchGpsState.READY);
@@ -1205,7 +1324,7 @@ export const Dashboard = () => {
         }
         setIsPunching(true);
         punchGps.setPunchState(punchGps.PunchGpsState.SUBMITTING, "Submitting attendance...");
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         const extTrim = (extendedHoursReasonParam || "").trim();
         try {
             markPunchTiming("punchApiStart");
@@ -1341,6 +1460,10 @@ export const Dashboard = () => {
         const requiresReason = (!!locationData?.requires_reason || !inRange) && !wfhApproved;
         setLocation((prev) => ({
             ...prev,
+            lat: acquired.measurement.lat,
+            lon: acquired.measurement.lon,
+            isAvailable: true,
+            isAcquiring: false,
             isInRange: inRange,
             wfhApproved,
             error:
@@ -1415,8 +1538,12 @@ export const Dashboard = () => {
         if (isPunching || punchGps.isBusy || punchHasOpenSession()) return;
         resetPunchTimings();
         markPunchTiming("afterUiValidation");
-        if (!location.isAvailable) {
-            alert(location.error || "Cannot punch in without location. Please enable location services.");
+        const overrideMin = Number(dynamicData.punch.work_override_min_chars) || 20;
+        if (
+            dynamicData.punch.requires_work_override_reason
+            && workOverrideReason.trim().length < overrideMin
+        ) {
+            setWorkOverrideModalOpen(true);
             return;
         }
         if (dynamicData.punch.requires_repeat_punch_reason) {
@@ -1439,10 +1566,6 @@ export const Dashboard = () => {
         if (isPunching || punchGps.isBusy || !punchHasOpenSession()) return;
         resetPunchTimings();
         markPunchTiming("afterUiValidation");
-        if (!location.isAvailable) {
-            alert(location.error || "Cannot punch out without location. Please enable location services.");
-            return;
-        }
         const prepared = await prepareFreshPunchMeasurement();
         if (!prepared) return;
         if (prepared.requiresReason || prepared.lowSignal) {
@@ -1531,6 +1654,16 @@ export const Dashboard = () => {
         await handlePunchIn(t, repeatTrim, punchMeasurementRef.current);
     };
 
+    const submitWorkOverridePunch = async () => {
+        const minChars = Number(dynamicData.punch.work_override_min_chars) || 20;
+        if (workOverrideReason.trim().length < minChars) {
+            alert(`Please enter a reason (at least ${minChars} characters).`);
+            return;
+        }
+        setWorkOverrideModalOpen(false);
+        await onPunchInClick();
+    };
+
     const submitExtendedHoursPunchOut = async () => {
         resetPunchTimings();
         const t = extendedHoursReason.trim();
@@ -1555,7 +1688,7 @@ export const Dashboard = () => {
         );
     };
     useEffect(() => {
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) return undefined;
         let alive = true;
         const applyNotice = (payload) => {
@@ -1599,7 +1732,7 @@ export const Dashboard = () => {
 
     const handleRevokeNotice = async () => {
         if (revokingNotice) return;
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) return;
         if (!window.confirm("Revoke your resignation request?")) return;
         setRevokingNotice(true);
@@ -1697,10 +1830,15 @@ export const Dashboard = () => {
     const isCheckedIn = punchHasOpenSession();
     const isCheckedOut = !punchHasOpenSession() && !!(dynamicData.punch.punch_in || dynamicData.punch.punch_out);
     const isActive = isCheckedIn;
-    const locationPill = useMemo(
-        () => zoneToLocationLabel(geo.zone, location.isInRange),
-        [geo.zone, location.isInRange],
-    );
+    const locationPill = useMemo(() => {
+        if (location.isAcquiring && !location.isAvailable) {
+            return { text: "Finding…", tone: "approx" };
+        }
+        if (!location.isAvailable) {
+            return { text: "Off", tone: "off" };
+        }
+        return zoneToLocationLabel(geo.zone, location.isInRange);
+    }, [geo.zone, location.isInRange, location.isAvailable, location.isAcquiring]);
     const punchBusy = isPunching || punchGps.isBusy;
     const punchStatusLine =
         punchGps.statusMessage ||
@@ -1772,6 +1910,20 @@ export const Dashboard = () => {
         <div className="main-layout">
             <div className="content-area">
                 <div className="dashboard-content" style={{ paddingTop: "24px" }}>
+                    <ProfileStatusPanel
+                        status={profileStatus}
+                        retrying={retryingProfile}
+                        onRetry={async () => {
+                            setRetryingProfile(true);
+                            try {
+                                await refreshUserData({ force: true });
+                                await fetchDashboardData();
+                            } finally {
+                                setRetryingProfile(false);
+                            }
+                        }}
+                    />
+                    {profileStatus?.kind !== "load_failed" ? (
                     <div className="top-cards-grid">
                         <div className="card top-card simple-card">
                             <div className="card-content-wrapper">
@@ -1830,6 +1982,7 @@ export const Dashboard = () => {
                             </button>
                         </div>
                     </div>
+                    ) : null}
                     {noticeInfo?.active ? (
                         <div className="dash-notice-card">
                             <div className="dash-notice-card__count">
@@ -1912,7 +2065,7 @@ export const Dashboard = () => {
                                                 <span className="location-label">Location</span>
                                                 <span className={`location-pill ${locationPill.tone}`}>
                                                     <span className="location-dot"></span>
-                                                    {location.isAvailable ? locationPill.text : "Off"}
+                                                    {locationPill.text}
                                                 </span>
                                             </div>
                                             {instantPunchHint && !punchStatusLine && (
@@ -1950,6 +2103,15 @@ export const Dashboard = () => {
                                         <div className="location-error-banner">
                                             <span>⚠️</span>
                                             <span>{location.error}</span>
+                                            <button
+                                                type="button"
+                                                className="location-retry-btn"
+                                                onClick={() => requestLocationRef.current?.()}
+                                                disabled={location.isAcquiring || punchBusy}
+                                            >
+                                                <FiRefreshCw size={14} aria-hidden />
+                                                Retry location
+                                            </button>
                                         </div>
                                     )}
 
@@ -1971,7 +2133,7 @@ export const Dashboard = () => {
                                         <button
                                             className="btn-punch btn-punch-in"
                                             onClick={onPunchInClick}
-                                            disabled={punchHasOpenSession() || punchBusy || !location.isAvailable}
+                                            disabled={punchHasOpenSession() || punchBusy}
                                         >
                                             <FiCheckCircle className="btn-icon" />
                                             {punchBusy && !isCheckedIn
@@ -1983,7 +2145,7 @@ export const Dashboard = () => {
                                         <button
                                             className="btn-punch btn-punch-out"
                                             onClick={onPunchOutClick}
-                                            disabled={!punchHasOpenSession() || punchBusy || !location.isAvailable}
+                                            disabled={!punchHasOpenSession() || punchBusy}
                                         >
                                             {punchBusy && punchHasOpenSession()
                                                 ? punchGps.isBusy
@@ -2398,6 +2560,51 @@ export const Dashboard = () => {
                                 : nhqPunchModalMode === "out"
                                     ? "Continue punch out"
                                     : "Continue punch in"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+        {workOverrideModalOpen && (
+            <div
+                className="dashboard-repeat-punch-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="work-override-title"
+                onClick={() => !isPunching && setWorkOverrideModalOpen(false)}
+            >
+                <div className="dashboard-repeat-punch-modal" onClick={(e) => e.stopPropagation()}>
+                    <h3 id="work-override-title">
+                        {dynamicData.punch.work_override_title || "Why are you working today?"}
+                    </h3>
+                    <p className="dashboard-repeat-punch-hint">
+                        {dynamicData.punch.work_override_message
+                            || "Enter why you are punching in on a public holiday or approved leave. Your leave is not cancelled."}
+                    </p>
+                    <textarea
+                        className="dashboard-repeat-punch-textarea"
+                        value={workOverrideReason}
+                        onChange={(e) => setWorkOverrideReason(e.target.value)}
+                        placeholder="e.g. Urgent production issue — needed on site for 4 hours"
+                        rows={4}
+                        disabled={isPunching}
+                    />
+                    <div className="dashboard-repeat-punch-actions">
+                        <button
+                            type="button"
+                            className="dashboard-repeat-punch-btn secondary"
+                            disabled={isPunching}
+                            onClick={() => setWorkOverrideModalOpen(false)}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="dashboard-repeat-punch-btn primary"
+                            disabled={isPunching}
+                            onClick={submitWorkOverridePunch}
+                        >
+                            {isPunching ? "Submitting…" : "Continue punch in"}
                         </button>
                     </div>
                 </div>

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .. import db
 from ..datetime_utils import isoformat_api, utc_now
+from ..money import Money
 
 
 def _default_tenant_id():
@@ -28,9 +29,9 @@ class CompensationBand(db.Model):
     circle = db.Column(db.String(80), nullable=False, index=True)
     emp_type = db.Column(db.String(80), nullable=False, index=True)
     grade = db.Column(db.String(80), nullable=False, default="General", index=True)
-    min_annual_ctc = db.Column(db.Float, nullable=False, default=0)
-    mid_annual_ctc = db.Column(db.Float, nullable=True)
-    max_annual_ctc = db.Column(db.Float, nullable=False, default=0)
+    min_annual_ctc = db.Column(Money(), nullable=False, default=0)
+    mid_annual_ctc = db.Column(Money(), nullable=True)
+    max_annual_ctc = db.Column(Money(), nullable=False, default=0)
     notes = db.Column(db.Text, nullable=True)
     created_by = db.Column(db.String(120), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)

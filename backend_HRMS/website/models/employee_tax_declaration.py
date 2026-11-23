@@ -1,6 +1,7 @@
 """Per-employee annual tax investment declaration (header + line items + documents)."""
 from .. import db
 from ..datetime_utils import isoformat_api, utc_now
+from ..money import Money
 
 
 class EmployeeTaxDeclaration(db.Model):
@@ -24,12 +25,12 @@ class EmployeeTaxDeclaration(db.Model):
     tax_regime = db.Column(db.String(80), nullable=True)
 
     # Legacy rollup fields (synced from items for TDS projection)
-    rent_paid_annual = db.Column(db.Float, nullable=True, default=0)
+    rent_paid_annual = db.Column(Money(), nullable=True, default=0)
     is_metro = db.Column(db.Boolean, nullable=False, default=False)
-    section_80c_extra = db.Column(db.Float, nullable=True, default=0)
-    section_80d = db.Column(db.Float, nullable=True, default=0)
-    previous_employer_tds = db.Column(db.Float, nullable=True, default=0)
-    previous_employer_taxable = db.Column(db.Float, nullable=True, default=0)
+    section_80c_extra = db.Column(Money(), nullable=True, default=0)
+    section_80d = db.Column(Money(), nullable=True, default=0)
+    previous_employer_tds = db.Column(Money(), nullable=True, default=0)
+    previous_employer_taxable = db.Column(Money(), nullable=True, default=0)
 
     regime_declaration_accepted = db.Column(db.Boolean, nullable=False, default=False)
     new_regime_acknowledged = db.Column(db.Boolean, nullable=False, default=False)
@@ -130,8 +131,8 @@ class TaxDeclarationItem(db.Model):
     )
     section_code = db.Column(db.String(40), nullable=False, index=True)
     item_code = db.Column(db.String(60), nullable=False)
-    amount = db.Column(db.Float, nullable=True)
-    final_amount = db.Column(db.Float, nullable=True)
+    amount = db.Column(Money(), nullable=True)
+    final_amount = db.Column(Money(), nullable=True)
     text_value = db.Column(db.String(500), nullable=True)
     meta_json = db.Column(db.JSON, nullable=True)
 

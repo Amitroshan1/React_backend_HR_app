@@ -6,6 +6,7 @@ import { useRefreshOnNavigate } from '../../../hooks/useRefreshOnNavigate';
 import { useAdminVisitNav } from '../../../hooks/useAdminVisitNav';
 import { formatDateDDMMYYYY } from '../../../utils/dateFormat';
 import '../offboarding-ui.css';
+import { getAccessToken } from "../../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 const ALL_TYPES_LABEL = 'All Types';
@@ -58,7 +59,7 @@ const ArchiveEmployees = () => {
   const [rehireSaving, setRehireSaving] = useState(false);
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

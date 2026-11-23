@@ -1,0 +1,118 @@
+.kyb-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #f0f4ff 0%, #fff 40%);
+  color: #0f172a;
+}
+
+.kyb-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem 1.5rem 1rem;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+  color: #1e40af;
+}
+
+.kyb-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.kyb-header p {
+  margin: 0.25rem 0 0;
+  color: #64748b;
+}
+
+.kyb-main {
+  flex: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 1.5rem 2rem;
+  width: 100%;
+}
+
+.kyb-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.kyb-card h2 {
+  margin: 0.75rem 0 0;
+  font-size: 1.05rem;
+}
+
+.kyb-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.kyb-card input,
+.kyb-card select,
+.kyb-card textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.kyb-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.kyb-files {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
+.kyb-error {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.kyb-info {
+  color: #047857;
+}
+
+.kyb-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.kyb-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  background: #1d4ed8;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.kyb-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.kyb-btn--ghost {
+  background: #e2e8f0;
+  color: #0f172a;
+}

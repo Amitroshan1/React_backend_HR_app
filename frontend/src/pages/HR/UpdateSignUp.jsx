@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import { ArrowLeft, Search } from 'lucide-react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './UpdateSignUp.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = '/api/HumanResource';
 
@@ -29,7 +30,7 @@ export const UpdateSignUp = ({
   const [detailError, setDetailError] = useState('');
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Download, MapPin, AlertTriangle, Activity, Settings, Search, Shield, Wrench, BarChart3, GitCompare, Rocket } from 'lucide-react';
 import './GeoAnalytics.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API = '/api/HumanResource';
 
@@ -20,7 +21,7 @@ const TABS = [
 ];
 
 const authHeaders = () => {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 

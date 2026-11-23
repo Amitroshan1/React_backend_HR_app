@@ -188,7 +188,7 @@ export function FinanceCtcPolicy() {
         <div className="fpol-example">
           <h3>Mini example — PF after 17 Sep 2026</h3>
           <p>Basic ₹22,000, DA ₹0. PF wage = ₹22,000, under the ₹25,000 ceiling, so PF is 12% × 22,000 = <strong>₹2,640</strong> each side.</p>
-          <p>If the same person sat on the old ₹15,000 pack, PF would have been 12% × 15,000 = <strong>₹1,800</strong>. That is why Finance must approve “adopt pack + queue recalc” before staff with wage above ₹15,000 are rewritten.</p>
+          <p>If the same person sat on the old ₹15,000 pack, PF would have been 12% × 15,000 = <strong>₹1,800</strong>. That is why Finance must approve “adopt pack + queue recalc” before staff whose PF wage exceeds the <em>previous</em> pack ceiling are rewritten.</p>
         </div>
       </section>
 
@@ -198,7 +198,7 @@ export function FinanceCtcPolicy() {
           <li>Accounts opens CTC policy and reviews the active pack (PF ceiling shown on the CTC studio chip).</li>
           <li><strong>Adopt current govt pack</strong> only switches the company pack after Finance approve. Existing staff rows stay as-is.</li>
           <li>
-            <strong>Adopt pack + queue staff recalc</strong> also lists employees whose PF wage is above ₹15,000.
+            <strong>Adopt pack + queue staff recalc</strong> also lists employees whose PF wage is above the previous pack ceiling (₹15,000 before 17 Sep 2026).
             After Finance approve, those live CTCs are recomputed on the new pack. Others are not auto-touched.
           </li>
         </ol>
@@ -332,7 +332,7 @@ export function FinanceCtcPolicy() {
             <strong>Employee OTP on payslip vs Accounts.</strong> Accounts / HR / Admin skip payslip OTP, including on their own CTC. Employees do not.
           </li>
           <li>
-            <strong>Adopt pack is not “recalc everyone”.</strong> Recalc only queues staff with PF wage above ₹15,000, and only after Finance approve.
+            <strong>Adopt pack is not “recalc everyone”.</strong> Recalc only queues staff with PF wage above the previous pack ceiling, and only after Finance approve.
           </li>
           <li>
             <strong>Draft tax file ≠ lower TDS.</strong> The employee can see a draft on the declaration form. Projection and payroll wait for submit/approve.

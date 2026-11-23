@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useRefreshOnNavigate } from "../../../../hooks/useRefreshOnNavigate";
+import { getAccessToken } from "../../../../utils/authSession";
 
 const API = "/api/inventory-purchase";
 
 function authHeaders() {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

@@ -17,6 +17,7 @@ class CTCBreakupRevision(db.Model):
     )
     effective_from = db.Column(db.Date, nullable=False, index=True)
     snapshot = db.Column(db.JSON, nullable=False)
+    json_blob = db.Column(db.LargeBinary, nullable=True)
     note = db.Column(db.String(255), nullable=True)
     created_by_admin_id = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=True)

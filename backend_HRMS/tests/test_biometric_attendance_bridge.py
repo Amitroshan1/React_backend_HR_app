@@ -519,7 +519,7 @@ def test_biometric_in_then_web_close(client, stack):
         assert punch.punch_out == sess.clock_out
 
 
-def test_full_day_leave_blocks(client, stack):
+def test_full_day_leave_allows_biometric_punch(client, stack):
     with stack.app.app_context():
         stack.db.session.add(
             stack.LeaveApplication(
@@ -533,10 +533,11 @@ def test_full_day_leave_blocks(client, stack):
         )
         stack.db.session.commit()
         _post_attlog(client, _att())
-        assert stack.PunchSession.query.count() == 0
+        assert stack.PunchSession.query.count() == 1
         log = stack.BiometricLog.query.first()
-        assert log.status == "ignored"
-        assert log.error_message == "on_leave"
+        assert log.status in {"applied", "ok", "processed", "success"} or log.status != "ignored"
+        sess = stack.PunchSession.query.first()
+        assert sess is not None
 
 
 def test_duplicate_event_one_session(client, stack):

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { CalendarPlus, Check, UserRound } from 'lucide-react';
 import './HRApplyLeaveOnBehalf.css';
+import { getAccessToken } from "../../utils/authSession";
 
 export const HR_LEAVE_API_BASE = '/api/HumanResource';
 
@@ -20,7 +21,7 @@ export const LEAVE_STATUS_OPTIONS = [
 ];
 
 export function getHrAuthHeaders() {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -29,6 +30,14 @@ function initialsOf(label) {
   const parts = name.split(/\s+/).filter(Boolean);
   if (!parts.length) return 'E';
   return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase();
+}
+
+function todayIsoIST() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+function currentLeaveYearEndIso() {
+  return `${todayIsoIST().slice(0, 4)}-12-31`;
 }
 
 const EMPTY_FORM = {
@@ -149,6 +158,11 @@ export function HRApplyLeaveOnBehalf({
     }
     if (form.end_date < form.start_date) {
       setFormError('End date cannot be before start date.');
+      return;
+    }
+    const yearEnd = currentLeaveYearEndIso();
+    if (form.start_date > yearEnd || form.end_date > yearEnd) {
+      setFormError(`Leave can only be applied for dates in the current year (until ${yearEnd}).`);
       return;
     }
     if (reason.length < 10) {
@@ -296,6 +310,7 @@ export function HRApplyLeaveOnBehalf({
                 type="date"
                 value={form.start_date}
                 onChange={(e) => handleFormChange('start_date', e.target.value)}
+                max={currentLeaveYearEndIso()}
                 required
               />
             </label>
@@ -306,6 +321,7 @@ export function HRApplyLeaveOnBehalf({
                 value={form.end_date}
                 onChange={(e) => handleFormChange('end_date', e.target.value)}
                 min={form.start_date || undefined}
+                max={currentLeaveYearEndIso()}
                 disabled={form.leave_type === 'Half Day Leave'}
                 required
               />

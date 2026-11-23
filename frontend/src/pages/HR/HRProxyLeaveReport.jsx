@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { formatDate, formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
 import './HRProxyLeaveReport.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = '/api/HumanResource';
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 

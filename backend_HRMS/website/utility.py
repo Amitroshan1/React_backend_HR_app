@@ -150,6 +150,88 @@ def is_on_leave(admin_id, today):
     return False
 
 
+WORK_OVERRIDE_MIN_CHARS = 20
+
+
+def _approved_full_day_leaves_on(admin_id, day):
+    rows = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin_id,
+        LeaveApplication.status == "Approved",
+        LeaveApplication.start_date <= day,
+        LeaveApplication.end_date >= day,
+    ).all()
+    return [
+        lv for lv in rows
+        if (getattr(lv, "leave_type", None) or "").strip().lower() != "half day leave"
+    ]
+
+
+def punch_work_override_context(admin_id, day, tenant_id=None):
+    """Reason required before punch-in on approved full-day leave or a mandatory holiday.
+
+    Does not cancel leave. None when the day is a normal working day (or half-day leave).
+    """
+    leaves = _approved_full_day_leaves_on(admin_id, day)
+    if leaves:
+        types = []
+        seen = set()
+        for lv in leaves:
+            name = (getattr(lv, "leave_type", None) or "Leave").strip() or "Leave"
+            key = name.lower()
+            if key not in seen:
+                seen.add(key)
+                types.append(name)
+        label = ", ".join(types)
+        return {
+            "kind": "leave",
+            "leave_type": label,
+            "holiday_name": None,
+            "title": "Working on approved leave",
+            "message": (
+                f"You have approved {label} today. Enter why you need to punch in "
+                f"(at least {WORK_OVERRIDE_MIN_CHARS} characters). "
+                "Your leave is not cancelled."
+            ),
+        }
+
+    try:
+        from .leave_attendence import _holiday_entries
+        from .tenant_context import tenant_id_for_admin
+        from .models.Admin_models import Admin
+
+        tid = tenant_id
+        if tid is None:
+            admin = Admin.query.get(admin_id)
+            tid = tenant_id_for_admin(admin) if admin else None
+        info = (_holiday_entries(day, day, tid) or {}).get(day)
+    except Exception:
+        info = None
+    if info and not info.get("is_optional"):
+        name = info.get("name") or "Public holiday"
+        return {
+            "kind": "holiday",
+            "leave_type": None,
+            "holiday_name": name,
+            "title": "Working on a public holiday",
+            "message": (
+                f"{day.strftime('%d/%m/%Y')} is a public holiday ({name}). "
+                f"Enter why you are working (at least {WORK_OVERRIDE_MIN_CHARS} characters). "
+                "This does not convert the holiday into a normal paid working day."
+            ),
+        }
+    return None
+
+
+def existing_work_override_reason(punch):
+    if not punch or not getattr(punch, "id", None):
+        return None
+    for sess in PunchSession.query.filter_by(punch_id=punch.id).order_by(PunchSession.clock_in.asc()):
+        reason = (getattr(sess, "work_override_reason", None) or "").strip()
+        if reason:
+            return reason
+    return None
+
+
 
 def is_wfh_allowed(admin_id):
     """True if approved WFH covers today (WorkFromHomeApplication or leave_type WFH)."""
@@ -1779,9 +1861,15 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
 
             if is_mandatory_holiday:
                 holiday_name = holiday_dates[current].holiday_name
-                text = holiday_name or "Holiday"
-                worksheet.write(row, base_col, text, legend_holiday_fmt)
-                worksheet.write(row, base_col + 1, "", legend_holiday_fmt)
+                has_holiday_punch = bool(punch and (punch.punch_in or punch.punch_out))
+                if has_holiday_punch:
+                    _client_write_punch_row_cells(
+                        worksheet, row, base_col, punch, legend_holiday_fmt, legend_holiday_fmt
+                    )
+                else:
+                    text = holiday_name or "Holiday"
+                    worksheet.write(row, base_col, text, legend_holiday_fmt)
+                    worksheet.write(row, base_col + 1, "", legend_holiday_fmt)
                 continue
 
             if is_optional_holiday:
@@ -1791,9 +1879,15 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                     for la in leaves_for_day
                 )
                 if not has_optional_leave:
-                    opt_name = optional_holiday_dates[current].holiday_name or "Optional Holiday"
-                    worksheet.write(row, base_col, opt_name, legend_holiday_fmt)
-                    worksheet.write(row, base_col + 1, "", legend_holiday_fmt)
+                    has_opt_punch = bool(punch and (punch.punch_in or punch.punch_out))
+                    if has_opt_punch:
+                        _client_write_punch_row_cells(
+                            worksheet, row, base_col, punch, legend_holiday_fmt, legend_holiday_fmt
+                        )
+                    else:
+                        opt_name = optional_holiday_dates[current].holiday_name or "Optional Holiday"
+                        worksheet.write(row, base_col, opt_name, legend_holiday_fmt)
+                        worksheet.write(row, base_col + 1, "", legend_holiday_fmt)
                     continue
 
             if leaves_for_day:
@@ -1832,6 +1926,10 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                             cell_text = f"Half Day ({approved_label})"
                             worksheet.write(row, base_col, cell_text, fmt)
                             worksheet.write(row, base_col + 1, "", fmt)
+                    elif has_punch:
+                        _client_write_punch_row_cells(
+                            worksheet, row, base_col, punch, legend_leave_fmt, legend_half_day_fmt
+                        )
                     else:
                         cell_text = f"Leave ({approved_label})"
                         fmt = legend_leave_fmt

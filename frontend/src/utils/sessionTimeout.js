@@ -1,6 +1,29 @@
 import { clearPlanContext } from "./planFeatures";
 import { clearSensitiveToken } from "./sensitiveDataAuth";
 import { clearPersistedPanelViews } from "../hooks/usePersistedView";
+import { clearClientPrivacyCaches } from "./clientPrivacy";
+import {
+  clearAccessCookie,
+  clearAccessToken,
+  getAccessToken,
+  hasSignedInHint,
+  isLikelyJwt,
+  markSignedIn,
+  setAccessToken,
+} from "./authSession";
+
+function sessionToken() {
+  return getAccessToken();
+}
+
+function stripBadAuthorization(headers) {
+  const auth = headers.get("Authorization");
+  if (!auth) return;
+  const raw = auth.replace(/^Bearer\s+/i, "").trim();
+  if (!isLikelyJwt(raw)) {
+    headers.delete("Authorization");
+  }
+}
 
 /** Idle session timeouts by emp_type (must match backend session_timeout.py). */
 
@@ -52,6 +75,12 @@ export function isSessionEndingUnauthorized(body) {
   return false;
 }
 
+/** Server said the login is over. Ignore client JWT clock and generic invalid_session. */
+export function shouldEndSessionFor401(body) {
+  const code = String(body?.code || "");
+  return code === TENANT_SUSPENDED_CODE || code === SESSION_EXPIRED_CODE;
+}
+
 let sessionEnding = false;
 let fetchGuardInstalled = false;
 let refreshInFlight = null;
@@ -78,17 +107,19 @@ function isSessionRefreshUrl(url) {
 /** Clear the session and send the user to login once. */
 export function endSession(reason = "1") {
   if (sessionEnding) return;
-  if (!localStorage.getItem("token") && window.location.pathname === "/") return;
+  if (!hasSignedInHint() && window.location.pathname === "/") return;
   sessionEnding = true;
   if (!localStorage.getItem(SESSION_ENDED_KEY)) {
     localStorage.setItem(SESSION_ENDED_KEY, reason);
   }
-  localStorage.removeItem("token");
+  clearAccessToken();
   localStorage.removeItem(ACTIVITY_KEY);
   localStorage.removeItem(SESSION_TIMEOUT_KEY);
   clearSensitiveToken();
   clearPlanContext();
+  clearClientPrivacyCaches();
   clearPersistedPanelViews();
+  void clearAccessCookie();
   const path = window.location.pathname || "/";
   if (path !== "/" && path !== "") {
     window.location.assign("/");
@@ -98,34 +129,53 @@ export function endSession(reason = "1") {
 }
 
 function shouldInspectUnauthorized(url) {
-  if (!localStorage.getItem("token")) return false;
+  if (!hasSignedInHint()) return false;
   if (isPublicApi(url)) return false;
   return String(url || "").includes("/api/");
 }
 
 function currentEmpType() {
-  return empTypeFromToken(localStorage.getItem("token"));
+  return empTypeFromToken(sessionToken());
 }
 
 /** Stamp last activity. Does not refresh. */
 export function markLocalActivity() {
-  if (!localStorage.getItem("token")) return;
+  if (!hasSignedInHint()) return;
   const now = Date.now();
   localStorage.setItem(ACTIVITY_KEY, String(now));
 }
 
 /**
- * If a live token has no activity stamp, start the idle clock now.
- * Does not revive an already-expired JWT with no stamp.
+ * Start/reset the idle clock for a live JWT. Leftover lastActivityAt from a
+ * previous visit must not idle-out a newly issued token.
  */
 export function ensureActivityStamp() {
-  const token = localStorage.getItem("token");
-  if (!token) return;
-  if (jwtIsExpired(token)) return;
+  const token = sessionToken();
+  if (!token && !hasSignedInHint()) return;
+  if (!token) {
+    const now = Date.now();
+    const raw = localStorage.getItem(ACTIVITY_KEY);
+    const lastActivity = Number(raw);
+    const missing = !raw || Number.isNaN(lastActivity);
+    const future = lastActivity > now + 5000;
+    if (missing || future) {
+      localStorage.setItem(ACTIVITY_KEY, String(now));
+    }
+    return;
+  }
+  const payload = parseJwtPayload(token);
+  const now = Date.now();
+  const iatMs = payload?.iat ? payload.iat * 1000 : now;
+  const timeoutMs = getIdleTimeoutMs(payload?.emp_type);
   const raw = localStorage.getItem(ACTIVITY_KEY);
   const lastActivity = Number(raw);
-  if (!raw || Number.isNaN(lastActivity) || lastActivity > Date.now() + 5000) {
-    localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
+  const missing = !raw || Number.isNaN(lastActivity);
+  const future = lastActivity > now + 5000;
+  const beforeThisJwt = lastActivity < iatMs - 2000;
+  const idleAlready = !missing && now - lastActivity > timeoutMs;
+  const jwtStillInIdleWindow = now - iatMs < timeoutMs + 5000;
+  if (missing || future || beforeThisJwt || (idleAlready && jwtStillInIdleWindow)) {
+    localStorage.setItem(ACTIVITY_KEY, String(now));
   }
 }
 
@@ -137,14 +187,28 @@ export function installSessionFetchGuard() {
   fetchGuardInstalled = true;
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async (input, init) => {
-    const response = await nativeFetch(input, init);
     const url = typeof input === "string" ? input : input?.url || "";
+    const nextInit = { ...init, credentials: "include" };
+    if (String(url).includes("/api/")) {
+      const headers = new Headers(nextInit.headers || {});
+      stripBadAuthorization(headers);
+      const token = sessionToken();
+      if (token && !isPublicApi(url) && !headers.has("Authorization")) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+      nextInit.headers = headers;
+    }
+    const response = await nativeFetch(input, nextInit);
     if (response.ok && shouldInspectUnauthorized(url) && !isSessionRefreshUrl(url)) {
       markLocalActivity();
     }
-    if (response.status === 401 && shouldInspectUnauthorized(url)) {
+    if (
+      response.status === 401
+      && shouldInspectUnauthorized(url)
+      && !isSessionRefreshUrl(url)
+    ) {
       const body = await readJsonBody(response);
-      if (isSessionEndingUnauthorized(body)) {
+      if (shouldEndSessionFor401(body)) {
         const reason = body?.code === TENANT_SUSPENDED_CODE ? TENANT_SUSPENDED_CODE : "1";
         if (reason === TENANT_SUSPENDED_CODE) {
           localStorage.setItem(SESSION_ENDED_KEY, TENANT_SUSPENDED_CODE);
@@ -164,7 +228,6 @@ export function installSessionFetchGuard() {
     refreshIfDue();
   };
   window.setInterval(enforce, 15000);
-  window.addEventListener("focus", enforce);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") enforce();
   });
@@ -213,16 +276,16 @@ export function getIdleTimeoutMs(empType) {
   return isExtendedSessionEmpType(empType) ? EXTENDED_SESSION_MS : DEFAULT_SESSION_MS;
 }
 
-/** True only after the idle window (not because the JWT clock ran out). */
+/** Idle only. Client JWT exp must not log the user out while the server still accepts the token. */
 export function sessionShouldEnd(empType) {
-  const token = localStorage.getItem("token");
-  if (!token) return false;
+  const token = sessionToken();
+  if (!token && !hasSignedInHint()) return false;
   ensureActivityStamp();
   const raw = localStorage.getItem(ACTIVITY_KEY);
   const lastActivity = Number(raw);
   const timeoutMs = getIdleTimeoutMs(empType);
   if (!raw || Number.isNaN(lastActivity)) {
-    return jwtIsExpired(token);
+    return false;
   }
   if (lastActivity > Date.now() + 5000) {
     localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
@@ -231,22 +294,20 @@ export function sessionShouldEnd(empType) {
   return Date.now() - lastActivity > timeoutMs;
 }
 
-export function jwtIsExpired(token = localStorage.getItem("token")) {
+export function jwtIsExpired(token = sessionToken()) {
   const payload = parseJwtPayload(token);
   if (!payload?.exp) return false;
-  return payload.exp * 1000 <= Date.now();
+  const now = Date.now();
+  const iatMs = payload.iat ? payload.iat * 1000 : 0;
+  if (iatMs && now - iatMs < 2 * 60 * 1000) return false;
+  return payload.exp * 1000 <= now;
 }
 
-export function jwtNeedsRefresh(token = localStorage.getItem("token")) {
+export function jwtNeedsRefresh(token = sessionToken()) {
   const payload = parseJwtPayload(token);
   if (!payload?.exp) return false;
-  const expMs = payload.exp * 1000;
-  const now = Date.now();
-  if (expMs <= now) return true;
-  const iatMs = payload.iat ? payload.iat * 1000 : expMs - getIdleTimeoutMs(payload.emp_type);
-  const life = Math.max(DEFAULT_SESSION_MS, expMs - iatMs);
-  const remaining = expMs - now;
-  return remaining <= Math.max(REFRESH_BEFORE_EXPIRY_MS, Math.floor(life * 0.5));
+  const remaining = payload.exp * 1000 - Date.now();
+  return remaining <= REFRESH_BEFORE_EXPIRY_MS;
 }
 
 /** Decode JWT payload without verifying signature (client-side hints only). */
@@ -281,8 +342,8 @@ export async function refreshSessionToken() {
 }
 
 async function doRefreshSessionToken() {
-  const token = localStorage.getItem("token");
-  if (!token) return false;
+  const token = sessionToken();
+  if (!token && !hasSignedInHint()) return false;
   if (sessionShouldEnd(empTypeFromToken(token))) {
     endSession("1");
     return false;
@@ -290,14 +351,15 @@ async function doRefreshSessionToken() {
   try {
     const res = await fetch("/api/auth/session/refresh", {
       method: "POST",
+      credentials: "include",
       headers: {
-        Authorization: `Bearer ${token}`,
+        ...(isLikelyJwt(token) ? { Authorization: `Bearer ${token}` } : {}),
         "Content-Type": "application/json",
       },
     });
     if (res.status === 401) {
       const body = await readJsonBody(res);
-      if (isSessionEndingUnauthorized(body)) {
+      if (shouldEndSessionFor401(body)) {
         const reason = await noteSessionEnded(res);
         endSession(reason);
       }
@@ -305,8 +367,9 @@ async function doRefreshSessionToken() {
     }
     if (!res.ok) return false;
     const data = await res.json().catch(() => ({}));
-    if (data?.success && data?.token) {
-      localStorage.setItem("token", data.token);
+    if (data?.success) {
+      if (data?.token) setAccessToken(data.token);
+      else markSignedIn();
       persistSessionTimeoutMinutes(data.session_timeout_minutes);
       lastRefreshAt = Date.now();
       return true;
@@ -319,17 +382,24 @@ async function doRefreshSessionToken() {
 
 /** Refresh when the token is half-spent or due, if the user is not idle. */
 export function refreshIfDue({ force = false } = {}) {
-  const token = localStorage.getItem("token");
-  if (!token) return Promise.resolve(false);
+  const token = sessionToken();
+  if (!token && !hasSignedInHint()) return Promise.resolve(false);
   if (sessionShouldEnd(empTypeFromToken(token))) {
     endSession("1");
     return Promise.resolve(false);
   }
   const now = Date.now();
-  if (!force && now - lastRefreshAt < REFRESH_THROTTLE_MS && !jwtNeedsRefresh(token)) {
+  if (!token && hasSignedInHint()) {
+    if (!force && lastRefreshAt && now - lastRefreshAt < REFRESH_THROTTLE_MS) {
+      return Promise.resolve(false);
+    }
+    lastRefreshAt = now;
+    return refreshSessionToken();
+  }
+  if (!force && !jwtNeedsRefresh(token)) {
     return Promise.resolve(false);
   }
-  if (!force && now - lastRefreshAt < 5000) {
+  if (!force && lastRefreshAt && now - lastRefreshAt < REFRESH_THROTTLE_MS) {
     return Promise.resolve(false);
   }
   lastRefreshAt = now;
@@ -337,7 +407,6 @@ export function refreshIfDue({ force = false } = {}) {
 }
 
 export function recordUserActivity() {
-  if (!localStorage.getItem("token")) return;
+  if (!hasSignedInHint()) return;
   markLocalActivity();
-  refreshIfDue();
 }

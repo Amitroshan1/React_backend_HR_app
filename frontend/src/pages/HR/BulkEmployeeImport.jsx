@@ -1,8 +1,24 @@
 import React, { useCallback, useState } from 'react';
 import { ArrowLeft, Download, Upload, FileSpreadsheet } from 'lucide-react';
 import './BulkEmployeeImport.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
+const CSV_ONLY_MSG =
+  'This file is not a CSV. Upload the employee import template (.csv), not an image or Excel file.';
+
+function isCsvFile(file) {
+  const name = (file?.name || '').toLowerCase();
+  return name.endsWith('.csv');
+}
+
+function friendlyImportError(message) {
+  const text = String(message || '');
+  if (/codec|decode byte|utf-8|invalid start byte|0x89/i.test(text)) {
+    return CSV_ONLY_MSG;
+  }
+  return text || 'Could not read this file. Upload a CSV.';
+}
 
 export const BulkEmployeeImport = ({ onBack }) => {
   const [file, setFile] = useState(null);
@@ -12,7 +28,7 @@ export const BulkEmployeeImport = ({ onBack }) => {
   const [error, setError] = useState('');
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 
@@ -39,6 +55,10 @@ export const BulkEmployeeImport = ({ onBack }) => {
       setError('Select a CSV file first');
       return;
     }
+    if (!isCsvFile(file)) {
+      setError(CSV_ONLY_MSG);
+      return;
+    }
     setLoading(true);
     setError('');
     setResult(null);
@@ -54,7 +74,7 @@ export const BulkEmployeeImport = ({ onBack }) => {
       if (res.ok && data.success) {
         setPreview(data);
       } else {
-        setError(data.message || 'Preview failed');
+        setError(friendlyImportError(data.message || 'Preview failed'));
         setPreview(null);
       }
     } catch {
@@ -68,6 +88,10 @@ export const BulkEmployeeImport = ({ onBack }) => {
   const handleImport = async () => {
     if (!file) {
       setError('Select a CSV file first');
+      return;
+    }
+    if (!isCsvFile(file)) {
+      setError(CSV_ONLY_MSG);
       return;
     }
     if (!window.confirm('Import employees from this CSV? Existing accounts will be skipped.')) return;
@@ -86,7 +110,7 @@ export const BulkEmployeeImport = ({ onBack }) => {
         setResult(data);
         setPreview(null);
       } else {
-        setError(data.message || 'Import failed');
+        setError(friendlyImportError(data.message || 'Import failed'));
         if (data.preview) setPreview(data.preview);
       }
     } catch {
@@ -120,9 +144,16 @@ export const BulkEmployeeImport = ({ onBack }) => {
               type="file"
               accept=".csv,text/csv"
               onChange={(e) => {
-                setFile(e.target.files?.[0] || null);
+                const next = e.target.files?.[0] || null;
                 setPreview(null);
                 setResult(null);
+                if (next && !isCsvFile(next)) {
+                  setFile(null);
+                  e.target.value = '';
+                  setError(CSV_ONLY_MSG);
+                  return;
+                }
+                setFile(next);
                 setError('');
               }}
             />

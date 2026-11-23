@@ -11,6 +11,7 @@ import { fetchAndOpenAuthenticatedFile } from '../../utils/openBlobFile';
 import { toAuthContentUrl } from '../../utils/secureFileUrl';
 import './HREmployee360.css';
 import '../Leaves/CompOffLedger.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
@@ -27,7 +28,7 @@ const TABS = [
 ];
 
 function getAuthHeaders() {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

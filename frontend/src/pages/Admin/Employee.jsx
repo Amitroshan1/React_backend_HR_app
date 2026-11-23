@@ -9,6 +9,7 @@ import { markAdminDepartmentVisit } from './adminVisit';
 import { UserAvatar } from '../../components/UserAvatar';
 import './AdminList.css';
 import './Employee.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const MASTER_OPTIONS_API = '/api/auth/master-options';
 const ADMIN_EMPLOYEES_API = '/api/admin/employees';
@@ -72,7 +73,7 @@ function downloadCsv(rows) {
 }
 
 async function fetchDirectoryPage(params) {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   if (!token) throw new Error('Please sign in again.');
   const qs = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -129,7 +130,7 @@ const Employee = () => {
   const facets = list.meta || EMPTY_FACETS;
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => res.json().catch(() => ({})))
@@ -150,7 +151,7 @@ const Employee = () => {
   const loadEmployees = useCallback(() => {
     // The paged list loads itself and refetches when filters, search or sort change.
     if (paged) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setLoading(false);
       setFailed(true);

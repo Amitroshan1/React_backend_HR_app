@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { ArrowLeft, Search, Upload, Plus } from 'lucide-react';
 import './AddAssets.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -19,7 +20,7 @@ export const AddAssets = ({ onBack }) => {
   const [addSuccess, setAddSuccess] = useState(false);
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

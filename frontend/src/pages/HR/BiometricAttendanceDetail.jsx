@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { X, Star } from 'lucide-react';
 import { formatDate } from '../../utils/dateFormat';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = '/api/hr/biometric';
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 

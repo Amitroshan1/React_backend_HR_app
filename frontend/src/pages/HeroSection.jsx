@@ -1,16 +1,16 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { useUser } from "../components/layout/UserContext";
-import { setPlanContext } from "../utils/planFeatures";
+import { postLoginHomePath, setPlanContext, userFromAccessToken } from "../utils/planFeatures";
 import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
 import { persistSessionTimeoutMinutes, SESSION_ENDED_KEY, TENANT_SUSPENDED_CODE } from "../utils/sessionTimeout";
+import { hasSignedInHint, markSignedIn, setAccessToken } from "../utils/authSession";
 
 import "./style/HeroSection.css";
 
 export const HeroSection = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const { refreshUserData } = useUser();
 
   const [identifier, setIdentifier] = useState("");
@@ -45,32 +45,6 @@ export const HeroSection = () => {
     }
   }, []);
 
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      navigate("/dashboard", { replace: true });
-    }
-  }, [navigate]);
-
-  useEffect(() => {
-    const handlePopState = () => {
-      const token = localStorage.getItem("token");
-      const path = window.location.pathname || "";
-      if (token && (path === "/" || path === "")) {
-        navigate("/dashboard", { replace: true });
-      }
-    };
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [navigate]);
-
-  useEffect(() => {
-    const path = location.pathname || "";
-    if ((path === "/" || path === "") && localStorage.getItem("token")) {
-      navigate("/dashboard", { replace: true });
-    }
-  }, [location.pathname, navigate]);
-
   const handleRequestOtp = async () => {
     if (isSubmitting) return;
     const value = identifier.replace(/\s+/g, "").trim();
@@ -85,6 +59,7 @@ export const HeroSection = () => {
     try {
       const res = await fetch("/api/auth/request-otp", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier: value }),
       });
@@ -121,21 +96,25 @@ export const HeroSection = () => {
     try {
       const res = await fetch("/api/auth/verify-otp", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier: value, otp: code }),
       });
       const data = await res.json().catch(() => ({}));
-
-      if (data.success && data.token) {
-        await completeLogin(data);
-        return;
-      }
 
       if (data.success && data.requires_tenant_selection) {
         setSelectionToken(data.selection_token || "");
         setTenantChoices(data.tenants || []);
         setInfo(data.message || "Select the company you want to sign in to.");
         setStep("tenant");
+        return;
+      }
+
+      if (res.ok && data.success) {
+        await completeLogin({
+          ...data,
+          token: data.token || data.access_token,
+        });
         return;
       }
 
@@ -149,17 +128,28 @@ export const HeroSection = () => {
   };
 
   const completeLogin = async (data) => {
+    if (!data?.success) {
+      setError("Login succeeded but the session was not established. Try again.");
+      return;
+    }
     clearLoginNotificationsFlag();
-    localStorage.setItem("token", data.token);
+    localStorage.removeItem(SESSION_ENDED_KEY);
+    if (data.token) setAccessToken(data.token);
+    markSignedIn();
     localStorage.setItem("lastActivityAt", String(Date.now()));
     persistSessionTimeoutMinutes(data.session_timeout_minutes);
     setPlanContext(data.plan, data.features, {
       is_platform_super_admin: data.is_platform_super_admin,
     });
-    await refreshUserData({ force: true });
     toast.success("Login successful!");
-    navigate("/dashboard", { replace: true });
     setError("");
+    const fromTok = userFromAccessToken(data.token);
+    const landingUser = {
+      emp_type: data.user?.emp_type || data.emp_type || fromTok.emp_type,
+      tenant_id: data.user?.tenant_id || data.tenant_id || fromTok.tenant_id,
+    };
+    navigate(postLoginHomePath(landingUser), { replace: true });
+    void refreshUserData({ force: true });
   };
 
   const handleSelectTenant = async (tenantId) => {
@@ -170,12 +160,13 @@ export const HeroSection = () => {
     try {
       const res = await fetch("/api/auth/select-tenant", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ selection_token: selectionToken, tenant_id: tenantId }),
       });
       const data = await res.json().catch(() => ({}));
 
-      if (data.success && data.token) {
+      if (data.success && !data.requires_tenant_selection) {
         await completeLogin(data);
         return;
       }
@@ -212,7 +203,7 @@ export const HeroSection = () => {
     setInfo("");
   };
 
-  if (typeof window !== "undefined" && localStorage.getItem("token")) {
+  if (typeof window !== "undefined" && hasSignedInHint()) {
     return null;
   }
 

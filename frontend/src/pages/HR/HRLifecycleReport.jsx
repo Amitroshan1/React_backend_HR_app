@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, ArrowLeft, CalendarDays, RefreshCw, TrendingDown, UserPlus, Users } from 'lucide-react';
 import './HRLifecycleReport.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const FILTERS = [30, 60, 90, 180];
 const API_BASE = '/api/HumanResource';
 
 function authHeaders() {
-  return { Authorization: `Bearer ${localStorage.getItem('token') || ''}` };
+  return { Authorization: `Bearer ${getAccessToken() || ''}` };
 }
 
 async function readJson(response) {

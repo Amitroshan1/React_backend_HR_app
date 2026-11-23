@@ -7,6 +7,8 @@ import {
     initialDataState,
     getProfileSectionCompletion,
     MANDATORY_FORM_FIELDS,
+    collectPreviousEmploymentErrors,
+    previousEmploymentDateBounds,
 } from '../utils/profileUtils';
 import {
     validateDocumentSection,
@@ -32,6 +34,7 @@ import {
 } from '../utils/profileApi';
 import { withFileCacheBust } from '../../../utils/secureFileUrl';
 import { useUser } from "../../../components/layout/UserContext";
+import { getAccessToken } from "../../../utils/authSession";
 
 const isValidEmail = (email) => {
     if (!email || typeof email !== 'string') return false;
@@ -147,7 +150,7 @@ export const Profile = () => {
 
     const showToast = useCallback((message, type = 'success') => {
         if (type === 'error') {
-            toast.error(message, { autoClose: 5000 });
+            toast.error(message, { autoClose: 5000, toastId: message });
         } else {
             toast.success(message, { autoClose: 4000 });
         }
@@ -173,7 +176,7 @@ export const Profile = () => {
 
     const fetchProfile = useCallback(async (options = {}) => {
         const { silent = false } = options;
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         if (!token) {
             if (!silent) setProfileLoading(false);
             return null;
@@ -224,7 +227,8 @@ export const Profile = () => {
         currentCurrentAddress,
         currentPermanentAddress,
         currentSameAsCurrent,
-        currentDocumentMeta
+        currentDocumentMeta,
+        currentPreviousEmployment
     ) => {
         let newErrors = {};
         let hasMandatoryErrors = false;
@@ -316,6 +320,18 @@ export const Profile = () => {
             hasMandatoryErrors = true;
         }
 
+        const peErrors = collectPreviousEmploymentErrors(
+            currentPreviousEmployment,
+            previousEmploymentDateBounds({
+                dateOfBirth: currentFormData?.dateOfBirth,
+                dateOfJoining: currentFormData?.dateOfJoining,
+            }),
+        );
+        Object.assign(newErrors, peErrors);
+        if (Object.keys(peErrors).length > 0) {
+            hasMandatoryErrors = true;
+        }
+
         return { newErrors, hasMandatoryErrors };
     }, []);
 
@@ -323,7 +339,7 @@ export const Profile = () => {
     const saveCurrentChanges = useCallback(async (finalSave = false) => {
         setSaveStatus('Saving...');
         const { newErrors, hasMandatoryErrors } = getMandatoryValidationErrors(
-            formData, files, currentAddress, permanentAddress, sameAsCurrent, documentMeta
+            formData, files, currentAddress, permanentAddress, sameAsCurrent, documentMeta, previousEmployment
         );
         setErrors(newErrors);
 
@@ -352,7 +368,7 @@ export const Profile = () => {
 
         // Commit snapshot only after API succeeds so Discard can restore last good data.
         const runSave = async () => {
-            const token = localStorage.getItem('token');
+            const token = getAccessToken();
             if (!adminId || !token) {
                 setSaveStatus('Ready');
                 showToast('Session expired or profile not loaded. Please refresh the page.', 'error');
@@ -440,7 +456,7 @@ export const Profile = () => {
     };
 
     const saveSectionToBackend = useCallback(async (sectionName) => {
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         if (!token) {
             showToast('Please log in to save your profile.', 'error');
             return false;
@@ -519,7 +535,7 @@ export const Profile = () => {
             return;
         }
         setSaveStatus('Uploading Image...');
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         if (!token) {
             showToast('Please log in again.', 'error');
             setSaveStatus('Ready');
@@ -951,6 +967,16 @@ export const Profile = () => {
             }
         });
 
+        const peErrors = collectPreviousEmploymentErrors(
+            previousEmployment,
+            previousEmploymentDateBounds({
+                dateOfBirth: formData?.dateOfBirth,
+                dateOfJoining: formData?.dateOfJoining,
+            }),
+        );
+        Object.assign(sectionErrors, peErrors);
+        if (Object.keys(peErrors).length > 0) hasErrors = true;
+
         setErrors(prev => ({ ...prev, ...sectionErrors }));
         return !hasErrors;
     };
@@ -967,7 +993,6 @@ export const Profile = () => {
 
     const validateEducationSection = () => {
         const sectionErrors = {};
-        let hasErrors = false;
 
         educationDetails.forEach((edu, index) => {
             const base = `education_${index}_`;
@@ -976,49 +1001,39 @@ export const Profile = () => {
             const univ = (edu.university || '').toString().trim();
             if (!qual) {
                 sectionErrors[`${base}qualification`] = 'Qualification is required.';
-                hasErrors = true;
             }
             if (!inst) {
                 sectionErrors[`${base}institution`] = 'Institution Name is required.';
-                hasErrors = true;
             } else if (inst.length > EDU_INST_UNIV_MAX_LEN) {
                 sectionErrors[`${base}institution`] = `Institution Name cannot exceed ${EDU_INST_UNIV_MAX_LEN} characters.`;
-                hasErrors = true;
             }
             if (!univ) {
                 sectionErrors[`${base}university`] = 'University / Board is required.';
-                hasErrors = true;
             } else if (univ.length > EDU_INST_UNIV_MAX_LEN) {
                 sectionErrors[`${base}university`] = `University / Board cannot exceed ${EDU_INST_UNIV_MAX_LEN} characters.`;
-                hasErrors = true;
             }
             const fromStr = (edu.fromDate || '').toString().trim();
             const toStr = (edu.toDate || '').toString().trim();
             if (!fromStr) {
                 sectionErrors[`${base}fromDate`] = 'From date is required.';
-                hasErrors = true;
             }
             if (!toStr) {
                 sectionErrors[`${base}toDate`] = 'To date is required.';
-                hasErrors = true;
             }
             if (fromStr && toStr) {
                 const fromD = new Date(fromStr);
                 const toD = new Date(toStr);
                 if (!isNaN(fromD.getTime()) && !isNaN(toD.getTime()) && fromD > toD) {
                     sectionErrors[`${base}fromDate`] = 'From date cannot be greater than To date.';
-                    hasErrors = true;
                 }
             }
             const marksStr = (edu.marks || '').toString().trim();
             if (!marksStr) {
                 sectionErrors[`${base}marks`] = 'Marks Percentage / CGPA is required.';
-                hasErrors = true;
             } else {
                 const marksNum = parseFloat(marksStr);
                 if (!isNaN(marksNum) && marksNum > 100) {
                     sectionErrors[`${base}marks`] = 'Marks Percentage cannot exceed 100.';
-                    hasErrors = true;
                 }
             }
         });
@@ -1028,10 +1043,7 @@ export const Profile = () => {
             Object.keys(next).forEach(k => { if (k.startsWith('education_')) delete next[k]; });
             return { ...next, ...sectionErrors };
         });
-        if (hasErrors) {
-            showToast('Please fix validation errors in education fields.', 'error');
-        }
-        return !hasErrors;
+        return sectionErrors;
     };
 
     const applySectionSavedState = useCallback((sectionName) => {
@@ -1081,6 +1093,7 @@ export const Profile = () => {
     const handleSectionSave = async (sectionName) => {
         let isValid = true;
         let documentSaveErrors = null;
+        let educationSaveErrors = null;
 
         switch (sectionName) {
             case 'personal':
@@ -1098,10 +1111,12 @@ export const Profile = () => {
                 if (!isValid) setExpandedSection('documents');
                 break;
             }
-            case 'education':
-                isValid = validateEducationSection();
+            case 'education': {
+                educationSaveErrors = validateEducationSection();
+                isValid = Object.keys(educationSaveErrors).length === 0;
                 if (!isValid) setExpandedSection('education');
                 break;
+            }
             default:
                 break;
         }
@@ -1117,6 +1132,9 @@ export const Profile = () => {
                         ? messages[0]
                         : `${messages[0]} (+${messages.length - 1} more — see list below)`;
                 }
+            }
+            if (sectionName === 'education' && educationSaveErrors && Object.keys(educationSaveErrors).length > 0) {
+                return false;
             }
             showToast(msg, 'error');
             return false;

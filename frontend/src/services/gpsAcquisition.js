@@ -1,20 +1,23 @@
 /**
  * GPS acquisition engine for Punch In / Punch Out.
  *
- * Uses getCurrentPosition() with controlled retries only — never watchPosition().
+ * Punch uses a short high-accuracy watchPosition burst (chip stays hot), then
+ * falls back to getCurrentPosition if the watch yields no sample.
  * Background Location Check polling must NOT call this for punch coordinates.
  *
  * Spec (Geo-fence V2):
- * - Max 5 attempts, 12s wall clock, 1.5s inter-attempt delay
+ * - Watch burst ≤ 8s (capped by 12s wall clock)
  * - enableHighAccuracy=true, maximumAge=0
  * - Best sample after outlier rejection (never average)
  * - Early stop when accuracy/spread thresholds are met
+ * - Permission denied stops immediately (no retry spam)
  */
 
 export const GPS_ACQUISITION_DEFAULTS = Object.freeze({
   maxAttempts: 5,
   timeoutMs: 8000,
   totalTimeoutMs: 12000,
+  watchBurstMs: 8000,
   interAttemptDelayMs: 1500,
   earlyStopAccuracyM: 30,
   earlyStopSpreadM: 50,
@@ -161,6 +164,104 @@ function sleep(ms, signal) {
   });
 }
 
+function geoErrorPayload(err) {
+  const code = err?.code;
+  if (code === 1) {
+    return {
+      ok: false,
+      code: "PERMISSION_DENIED",
+      message:
+        "Location permission denied. Allow this site in the browser lock/address bar, then tap Retry location.",
+    };
+  }
+  if (code === 2) {
+    return {
+      ok: false,
+      code: "POSITION_UNAVAILABLE",
+      message:
+        "Location is disabled or unavailable on this device. Turn on GPS / location services, then tap Retry location.",
+    };
+  }
+  if (code === 3) {
+    return {
+      ok: false,
+      code: "TIMEOUT",
+      message: "GPS timed out. Move near a window or try again outdoors.",
+    };
+  }
+  return {
+    ok: false,
+    code: "UNAVAILABLE",
+    message: err?.message || "Unable to read GPS location.",
+  };
+}
+
+/**
+ * Collect GPS samples with a short watchPosition burst. Caller must treat
+ * PERMISSION_DENIED as terminal. Clears the watch on settle/abort.
+ */
+function watchPositionBurst({ options, durationMs, signal, onSample }) {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || typeof navigator.geolocation?.watchPosition !== "function") {
+      resolve({ mode: "unsupported", error: null });
+      return;
+    }
+
+    let watchId = null;
+    let settled = false;
+    const finish = (payload) => {
+      if (settled) return;
+      settled = true;
+      if (watchId != null) {
+        try {
+          navigator.geolocation.clearWatch(watchId);
+        } catch {
+          /* ignore */
+        }
+        watchId = null;
+      }
+      signal?.removeEventListener("abort", onAbort);
+      clearTimeout(timer);
+      resolve(payload);
+    };
+
+    const onAbort = () => finish({ mode: "aborted", error: null });
+    if (signal?.aborted) {
+      finish({ mode: "aborted", error: null });
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    const timer = setTimeout(() => finish({ mode: "timeout", error: null }), Math.max(500, durationMs));
+
+    try {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const sample = {
+            lat: pos.coords.latitude,
+            lon: pos.coords.longitude,
+            accuracy: Number(pos.coords.accuracy),
+            timestamp: pos.timestamp || Date.now(),
+          };
+          const stop = onSample(sample);
+          if (stop) finish({ mode: "early", error: null });
+        },
+        (err) => {
+          const mapped = geoErrorPayload(err);
+          if (mapped.code === "PERMISSION_DENIED") {
+            finish({ mode: "denied", error: mapped });
+            return;
+          }
+          // TIMEOUT / UNAVAILABLE: keep watching until durationMs; GPS often recovers.
+        },
+        options,
+      );
+    } catch {
+      finish({ mode: "unsupported", error: null });
+    }
+  });
+}
+
 function getCurrentPositionOnce(options) {
   return new Promise((resolve) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -180,34 +281,7 @@ function getCurrentPositionOnce(options) {
         });
       },
       (err) => {
-        const code = err?.code;
-        if (code === 1) {
-          resolve({
-            ok: false,
-            code: "PERMISSION_DENIED",
-            message:
-              "Location permission denied. Enable location access in your browser settings and try again.",
-          });
-        } else if (code === 2) {
-          resolve({
-            ok: false,
-            code: "POSITION_UNAVAILABLE",
-            message:
-              "Location is disabled or unavailable on this device. Check GPS / location services.",
-          });
-        } else if (code === 3) {
-          resolve({
-            ok: false,
-            code: "TIMEOUT",
-            message: "GPS timed out. Move near a window or try again outdoors.",
-          });
-        } else {
-          resolve({
-            ok: false,
-            code: "UNAVAILABLE",
-            message: err?.message || "Unable to read GPS location.",
-          });
-        }
+        resolve(geoErrorPayload(err));
       },
       options,
     );
@@ -268,27 +342,72 @@ export async function acquireGpsFix(opts = {}) {
     };
   }
 
-  for (let attempt = 1; attempt <= cfg.maxAttempts; attempt++) {
-    if (signal?.aborted) {
-      return {
-        ok: false,
-        errorCode: "ABORTED",
-        message: "Location request cancelled.",
-        measurement: null,
-        attemptId,
-      };
+  const abortedResult = () => ({
+    ok: false,
+    errorCode: "ABORTED",
+    message: "Location request cancelled.",
+    measurement: null,
+    attemptId,
+  });
+
+  const deniedResult = (message) => ({
+    ok: false,
+    errorCode: "PERMISSION_DENIED",
+    message:
+      message ||
+      "Location permission denied. Allow this site in the browser lock/address bar, then tap Retry location.",
+    measurement: null,
+    attemptId,
+  });
+
+  permissionPrompted = true;
+  emit(PunchGpsState.REQUESTING_PERMISSION, 1);
+
+  const burstMs = Math.min(
+    Number(cfg.watchBurstMs) || 8000,
+    Math.max(500, cfg.totalTimeoutMs - (Date.now() - started)),
+  );
+
+  if (burstMs > 0 && !signal?.aborted) {
+    emit(PunchGpsState.ACQUIRING_LOCATION, 1);
+    const watchOutcome = await watchPositionBurst({
+      options: { ...geoOpts, timeout: burstMs },
+      durationMs: burstMs,
+      signal,
+      onSample: (sample) => {
+        samples.push(sample);
+        emit(
+          samples.length >= 2
+            ? PunchGpsState.IMPROVING_ACCURACY
+            : PunchGpsState.ACQUIRING_LOCATION,
+          samples.length,
+        );
+        return shouldEarlyStop(samples, cfg);
+      },
+    });
+
+    if (signal?.aborted || watchOutcome.mode === "aborted") {
+      return abortedResult();
     }
+    if (watchOutcome.mode === "denied") {
+      return deniedResult(watchOutcome.error?.message);
+    }
+    if (watchOutcome.error && samples.length === 0) {
+      lastError = watchOutcome.error;
+    }
+  }
+
+  const remainingAfterWatch = cfg.totalTimeoutMs - (Date.now() - started);
+  const fallbackAttempts =
+    samples.length === 0
+      ? Math.min(cfg.maxAttempts, remainingAfterWatch > 4000 ? 2 : 1)
+      : 0;
+
+  for (let attempt = 1; attempt <= fallbackAttempts; attempt++) {
+    if (signal?.aborted) return abortedResult();
     if (Date.now() - started >= cfg.totalTimeoutMs) break;
 
-    if (!permissionPrompted) {
-      permissionPrompted = true;
-      emit(PunchGpsState.REQUESTING_PERMISSION, attempt);
-    } else if (samples.length === 0) {
-      emit(PunchGpsState.ACQUIRING_LOCATION, attempt);
-    } else {
-      emit(PunchGpsState.IMPROVING_ACCURACY, attempt);
-    }
-
+    emit(PunchGpsState.ACQUIRING_LOCATION, attempt);
     const remaining = cfg.totalTimeoutMs - (Date.now() - started);
     if (remaining <= 0) break;
 
@@ -297,34 +416,19 @@ export async function acquireGpsFix(opts = {}) {
       timeout: Math.min(cfg.timeoutMs, Math.max(500, remaining)),
     });
 
-    if (signal?.aborted) {
-      return {
-        ok: false,
-        errorCode: "ABORTED",
-        message: "Location request cancelled.",
-        measurement: null,
-        attemptId,
-      };
-    }
+    if (signal?.aborted) return abortedResult();
 
     if (!result.ok) {
       lastError = result;
       if (result.code === "PERMISSION_DENIED") {
-        return {
-          ok: false,
-          errorCode: "PERMISSION_DENIED",
-          message: result.message,
-          measurement: null,
-          attemptId,
-        };
+        return deniedResult(result.message);
       }
-      // TIMEOUT / UNAVAILABLE — keep retrying within budget
     } else {
       samples.push(result.sample);
       if (shouldEarlyStop(samples, cfg)) break;
     }
 
-    if (attempt < cfg.maxAttempts && Date.now() - started < cfg.totalTimeoutMs) {
+    if (attempt < fallbackAttempts && Date.now() - started < cfg.totalTimeoutMs) {
       const wait = Math.min(
         cfg.interAttemptDelayMs,
         Math.max(0, cfg.totalTimeoutMs - (Date.now() - started)),
@@ -333,13 +437,7 @@ export async function acquireGpsFix(opts = {}) {
         try {
           await sleep(wait, signal);
         } catch {
-          return {
-            ok: false,
-            errorCode: "ABORTED",
-            message: "Location request cancelled.",
-            measurement: null,
-            attemptId,
-          };
+          return abortedResult();
         }
       }
     }

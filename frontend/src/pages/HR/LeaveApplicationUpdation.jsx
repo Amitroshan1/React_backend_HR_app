@@ -22,6 +22,7 @@ import { formatDate, formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import { HRApplyLeaveOnBehalf } from "./HRApplyLeaveOnBehalf";
 import { HRLeavePolicyCard, HRLeavePolicyPanel } from "./HRLeavePolicyPanel";
 import { HRApprovedLeaves } from "./HRApprovedLeaves";
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = "/api/HumanResource";
 
@@ -39,7 +40,7 @@ const LEAVE_TYPES = [
 ];
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 

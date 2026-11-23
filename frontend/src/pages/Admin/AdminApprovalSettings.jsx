@@ -14,6 +14,7 @@ import {
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { AdminBreadcrumb, commandCenterCrumbItem } from '../../components/layout/AdminBreadcrumb';
 import './AdminApprovalSettings.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const API = '/api/admin/approval-settings';
 
@@ -75,7 +76,7 @@ function ApprovalSwitch({ on, onToggle, label }) {
 }
 
 export default function AdminApprovalSettings() {
-  const token = () => localStorage.getItem('token');
+  const token = () => getAccessToken();
   const [settings, setSettings] = useState(null);
   const [switches, setSwitches] = useState([]);
   const [alwaysRequired, setAlwaysRequired] = useState([]);

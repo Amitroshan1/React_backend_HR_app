@@ -26,6 +26,8 @@ class EmployeeAccounts(db.Model):
     designation = db.Column(db.String(150), nullable=True)
     location = db.Column(db.String(200), nullable=True)
     bank_details = db.Column(db.Text, nullable=True)
+    bank_details_enc = db.Column(db.LargeBinary, nullable=True)
+    bank_account_last4 = db.Column(db.String(4), nullable=True)
     date_of_joining = db.Column(db.Date, nullable=True)
     tax_regime = db.Column(db.String(80), nullable=True)
     tax_regime_override = db.Column(db.String(80), nullable=True)
@@ -33,10 +35,16 @@ class EmployeeAccounts(db.Model):
     tax_regime_override_at = db.Column(db.DateTime, nullable=True)
     tax_regime_override_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
     pan = db.Column(db.String(20), nullable=True)
+    pan_enc = db.Column(db.LargeBinary, nullable=True)
+    pan_last4 = db.Column(db.String(4), nullable=True)
     uan = db.Column(db.String(30), nullable=True)
+    uan_enc = db.Column(db.LargeBinary, nullable=True)
     pf_account_number = db.Column(db.String(50), nullable=True)
+    pf_account_number_enc = db.Column(db.LargeBinary, nullable=True)
     esi_number = db.Column(db.String(50), nullable=True)
+    esi_number_enc = db.Column(db.LargeBinary, nullable=True)
     pran = db.Column(db.String(50), nullable=True)
+    pran_enc = db.Column(db.LargeBinary, nullable=True)
 
     created_at = db.Column(db.DateTime, nullable=True, default=utc_now)
     updated_at = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
@@ -52,6 +60,8 @@ class EmployeeAccounts(db.Model):
     )
 
     def to_dict(self):
+        from ..pii_crypto import pii_get
+
         return {
             "id": self.id,
             "admin_id": self.admin_id,
@@ -59,18 +69,20 @@ class EmployeeAccounts(db.Model):
             "function": self.function,
             "designation": self.designation,
             "location": self.location,
-            "bank_details": self.bank_details,
+            "bank_details": pii_get(self, "bank_details"),
             "date_of_joining": self.date_of_joining.isoformat() if self.date_of_joining else None,
             "tax_regime": self.tax_regime,
             "tax_regime_override": self.tax_regime_override,
             "tax_regime_override_reason": self.tax_regime_override_reason,
             "tax_regime_override_at": isoformat_api(self.tax_regime_override_at),
             "tax_regime_override_by_admin_id": self.tax_regime_override_by_admin_id,
-            "pan": self.pan,
-            "uan": self.uan,
-            "pf_account_number": self.pf_account_number,
-            "esi_number": self.esi_number,
-            "pran": self.pran,
+            "pan": pii_get(self, "pan"),
+            "uan": pii_get(self, "uan"),
+            "pf_account_number": pii_get(self, "pf_account_number"),
+            "esi_number": pii_get(self, "esi_number"),
+            "pran": pii_get(self, "pran"),
+            "bank_account_last4": self.bank_account_last4,
+            "pan_last4": self.pan_last4,
             "created_at": isoformat_api(self.created_at),
             "updated_at": isoformat_api(self.updated_at),
         }

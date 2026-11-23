@@ -736,8 +736,8 @@ function InventoryAssetsForm({ inventoryCategory }) {
       setSubmitted(false);
     } catch (err) {
       console.error("[AddNewAssets] Failed to save via API:", err);
-      const msg = toastITApiFailure(err, "Failed to save assets.");
-      setSuccessMsg(`⚠️ ${msg}`);
+      toastITApiFailure(err, "Failed to save assets.");
+      setSuccessMsg("");
     }
   }, [
     rows,

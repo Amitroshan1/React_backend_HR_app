@@ -137,6 +137,10 @@
   color: var(--claims-text-muted);
 }
 
+.claims-required {
+  color: #dc2626;
+}
+
 .claims-field-hint {
   font-size: 0.75rem;
   color: var(--claims-text-muted);
@@ -205,10 +209,39 @@
   gap: 16px;
 }
 
+.claims-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .claims-file-wrap {
   position: relative;
   width: 260px;
   max-width: 100%;
+}
+
+.claims-btn-clear-file {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.claims-btn-clear-file:hover {
+  background: #fee2e2;
+}
+
+.claims-file-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .claims-file-input {

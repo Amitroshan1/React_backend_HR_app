@@ -23,7 +23,6 @@ import HrRequestHistory, { getRequestHistorySeenAt, markRequestHistorySeen } fro
 import { LeaveAccrualSummary } from './LeaveAccrualSummary';
 import { HolidayCalendar } from './HolidayCalendar';
 import { LeaveApplicationUpdation } from './LeaveApplicationUpdation';
-import { HRAttendanceRegularization } from './HRAttendanceRegularization';
 import { HRProxyLeaveReport } from './HRProxyLeaveReport';
 import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
 import { HRAssessmentInvite } from './HRAssessmentInvite';
@@ -55,6 +54,7 @@ import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import { scrollAppToTop } from '../../utils/scrollToTop';
 import { fetchAndOpenAuthenticatedFile } from '../../utils/openBlobFile';
 import { toAuthContentUrl } from '../../utils/secureFileUrl';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_PANEL_VIEWS = [
   'main',
@@ -65,7 +65,6 @@ const HR_PANEL_VIEWS = [
   'circle_transfer_history',
   'newsfeed',
   'leave_updation',
-  'attendance_regularization',
   'proxy_leave_report',
   'assessment_invite',
   'update_manager',
@@ -246,7 +245,7 @@ function formatDateShort(isoDate) {
 }
 
 function getAuthHeaders() {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -1282,6 +1281,22 @@ function HrPunchFormView({ employee, onBack }) {
   );
 }
 
+const EMPTY_SIGNUP_FORM = {
+  user_name: '',
+  first_name: '',
+  email: '',
+  emp_id: '',
+  mobile: '',
+  doj: '',
+  emp_type: '',
+  circle: '',
+  designation: '',
+  employment_status: 'probation',
+  probation_start_date: '',
+  probation_end_date: '',
+  probation_duration_months: '6',
+};
+
 export const Hr = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -1342,21 +1357,7 @@ export const Hr = () => {
   const [masterOptions, setMasterOptions] = useState({ departments: [], circles: [] });
   const [masterLoading, setMasterLoading] = useState(false);
 
-  const [signupForm, setSignupForm] = useState({
-    user_name: '',
-    first_name: '',
-    email: '',
-    emp_id: '',
-    mobile: '',
-    doj: '',
-    emp_type: '',
-    circle: '',
-    designation: '',
-    employment_status: 'probation',
-    probation_start_date: '',
-    probation_end_date: '',
-    probation_duration_months: '6',
-  });
+  const [signupForm, setSignupForm] = useState(() => ({ ...EMPTY_SIGNUP_FORM }));
   const [signupSubmitting, setSignupSubmitting] = useState(false);
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
@@ -1372,6 +1373,19 @@ export const Hr = () => {
   /** Last Update SignUp search (filters + rows) so returning from edit keeps results without re-searching. */
   const [updateSignupSearchSnapshot, setUpdateSignupSearchSnapshot] = useState(null);
   const [updateSignupListRefreshKey, setUpdateSignupListRefreshKey] = useState(0);
+
+  const resetCreateSignupForm = useCallback(() => {
+    setSignupForm({ ...EMPTY_SIGNUP_FORM });
+    setSignupEditEmail(null);
+    setSignupEditOriginal(null);
+    setSignupOfferCtc(null);
+    setSignupCandidateId(null);
+    setCircleEffectiveFrom('');
+    setCircleTransferNotes('');
+    setSignupSuccess(false);
+    setSignupSuccessMessage('');
+    setSignupError('');
+  }, []);
 
   const openSignupForEdit = (employeeData) => {
     const snapshot = {
@@ -1577,7 +1591,7 @@ export const Hr = () => {
       }
     }
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setSignupError('Please log in to create an employee account.');
       return;
@@ -1689,18 +1703,7 @@ export const Hr = () => {
         if (res.ok && data.success) {
           setSignupSuccess(true);
           setSignupSuccessMessage(data.message || '');
-          setSignupForm({
-            user_name: '',
-            first_name: '',
-            email: '',
-            emp_id: '',
-            mobile: '',
-            doj: '',
-            emp_type: '',
-            circle: '',
-            designation: '',
-            ...emptySignupEmployment(''),
-          });
+          setSignupForm({ ...EMPTY_SIGNUP_FORM });
           setSignupOfferCtc(null);
           setSignupCandidateId(null);
         } else {
@@ -1842,7 +1845,6 @@ export const Hr = () => {
     { title: 'Circle Transfer History', icon: ArrowRightLeft, description: 'View circle changes with effective dates' },
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
     { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
-    { title: 'Attendance Regularization', icon: FileText, description: 'Approve employee requests for past absence' },
     { title: 'Proxy Leave Report', icon: BarChart3, description: 'HR/manager leaves applied on behalf of employees' },
     { title: 'Assessment Invite', icon: FileCheck, description: 'Send secure 15-minute assessment links and evaluate submissions' },
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
@@ -1974,7 +1976,7 @@ export const Hr = () => {
       alert('Please select both Circle and Employee Type');
       return false;
     }
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please log in to search employees.');
       return false;
@@ -2129,7 +2131,7 @@ export const Hr = () => {
   };
 
   const fetchDashboard = useCallback(async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setDashboardLoading(false);
       return;
@@ -2217,7 +2219,7 @@ export const Hr = () => {
   }, []);
 
   const fetchMasterOptions = useCallback(async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     setMasterLoading(true);
     try {
@@ -2240,13 +2242,13 @@ export const Hr = () => {
         // Refresh dropdown source of truth; only fix empty/invalid form picks
         // so an in-progress Sign Up is not wiped on soft navigation.
         setSignupForm((prev) => {
-          const empValid = prev.emp_type && departments.includes(prev.emp_type);
-          const circleValid = prev.circle && circles.includes(prev.circle);
-          if (empValid && circleValid) return prev;
+          const empOk = !prev.emp_type || departments.includes(prev.emp_type);
+          const circleOk = !prev.circle || circles.includes(prev.circle);
+          if (empOk && circleOk) return prev;
           return {
             ...prev,
-            emp_type: empValid ? prev.emp_type : departments[0] || '',
-            circle: circleValid ? prev.circle : circles[0] || '',
+            emp_type: empOk ? prev.emp_type : '',
+            circle: circleOk ? prev.circle : '',
           };
         });
       }
@@ -2354,9 +2356,7 @@ export const Hr = () => {
     recordRecentModule(title);
     refreshRecentModules();
     if (title === 'Sign Up') {
-      setSignupSuccess(false);
-      setSignupError('');
-      setSignupEditEmail(null);
+      resetCreateSignupForm();
       setView('signup');
     }
     else if (title === 'Generate Official Email') {
@@ -2384,8 +2384,6 @@ export const Hr = () => {
       setView('newsfeed');
     } else if (title === 'Leave Application Updation') {
       setView('leave_updation');
-    } else if (title === 'Attendance Regularization') {
-      setView('attendance_regularization');
     } else if (title === 'Proxy Leave Report') {
       setView('proxy_leave_report');
     } else if (title === 'Assessment Invite') {
@@ -2579,15 +2577,6 @@ if (view === 'leave_updation'){
       empTypeOptions={masterOptions.departments}
       circleOptions={masterOptions.circles}
       initialContext={leaveUpdationContext}
-    />
-  );
-}
-if (view === 'attendance_regularization') {
-  return (
-    <HRAttendanceRegularization
-      onBack={() => setView('updates')}
-      empTypeOptions={masterOptions.departments}
-      circleOptions={masterOptions.circles}
     />
   );
 }

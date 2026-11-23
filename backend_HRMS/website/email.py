@@ -1935,7 +1935,7 @@ def send_welcome_email(admin,data):
         <p>
             Regards,<br>
             <strong>HR Team</strong><br>
-            Saffo Technologies
+            Saffo Solution Technology
         </p>
         """
 
@@ -2008,7 +2008,7 @@ def send_asset_assigned_email(admin, asset):
         <p>
             Regards,<br>
             <strong>HR Team</strong><br>
-            Saffo Technologies
+            Saffo Solution Technology
         </p>
         """
 
@@ -2626,7 +2626,7 @@ def send_leave_applied_email(admin, leave):
                 <p>
                 Thanks & Regards,<br>
                 <strong>{admin.first_name}</strong><br>
-                Saffo Technologies
+                Saffo Solution Technology
                 </p>
                 """
 
@@ -3470,7 +3470,6 @@ def send_manager_increment_proposed_email(manager_admin, target_employee, revisi
             return False
         mgr_name = (getattr(manager_admin, "first_name", None) or "").strip() or manager_admin.email or "Manager"
         emp_name = (getattr(target_employee, "first_name", None) or "").strip() or target_employee.email or "Employee"
-        ctc = getattr(revision_request, "proposed_annual_ctc", None)
         eff = revision_request.effective_from.isoformat() if revision_request.effective_from else "—"
         subject = f"Increment Proposal: {emp_name}"
         body = f"""
@@ -3479,7 +3478,7 @@ def send_manager_increment_proposed_email(manager_admin, target_employee, revisi
         <table border="1" cellpadding="6" cellspacing="0">
             <tr><td><strong>Employee</strong></td><td>{emp_name}</td></tr>
             <tr><td><strong>Email</strong></td><td>{target_employee.email or 'N/A'}</td></tr>
-            <tr><td><strong>Proposed annual CTC</strong></td><td>{f'₹ {float(ctc):,.0f}' if ctc is not None else '—'}</td></tr>
+            <tr><td><strong>Proposed annual CTC</strong></td><td>Open HRMS Compensation to view the amount</td></tr>
             <tr><td><strong>Effective from</strong></td><td>{eff}</td></tr>
         </table>
         {f'<p><strong>Manager notes:</strong> {(revision_request.manager_notes or "")[:300]}</p>' if revision_request.manager_notes else ''}
@@ -3507,7 +3506,6 @@ def send_salary_revision_accounts_email(revision_request):
             return False
         admin = revision_request.admin
         emp_name = (admin.first_name if admin else None) or "Employee"
-        ctc = revision_request.proposed_annual_ctc
         rev_type = (revision_request.revision_type or "revision").replace("_", " ").title()
         subject = f"Salary Revision Ready: {emp_name}"
         body = f"""
@@ -3517,7 +3515,7 @@ def send_salary_revision_accounts_email(revision_request):
             <tr><td><strong>Employee</strong></td><td>{emp_name}</td></tr>
             <tr><td><strong>Emp ID</strong></td><td>{admin.emp_id if admin else '—'}</td></tr>
             <tr><td><strong>Type</strong></td><td>{rev_type}</td></tr>
-            <tr><td><strong>Proposed annual CTC</strong></td><td>{f'₹ {float(ctc):,.0f}' if ctc is not None else 'Review in HRMS'}</td></tr>
+            <tr><td><strong>Proposed annual CTC</strong></td><td>Open Accounts in HRMS to view the amount</td></tr>
         </table>
         <p>Please update CTC breakup and mark the revision complete in Accounts.</p>
         <p>— HRMS</p>
@@ -4000,4 +3998,91 @@ def send_assessment_hr_report_email(*, subject, html_body):
         return bool(ok), str(msg or "")
     except Exception as e:
         current_app.logger.warning("send_assessment_hr_report_email failed: %s", e)
+        return False, str(e)
+
+
+def send_company_kyb_invite_email(*, to_email, company_name, raw_token, valid_days=7):
+    """Public KYB onboarding link for a newly registered company."""
+    try:
+        from .tenant_kyb_service import kyb_link
+
+        sender_email = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        if not sender_email:
+            return False, "ZEPTO_SENDER_EMAIL not configured"
+        url = kyb_link(raw_token)
+        if not url.startswith(("http://", "https://")):
+            return False, "BASE_URL must be set to send the onboarding link"
+        days = max(1, int(valid_days or 7))
+        subject = f"Complete company verification for {company_name or 'your company'}"
+        safe_name = html.escape(company_name or "your company")
+        body = f"""
+        <p>Hello,</p>
+        <p>Please complete company details and legal-entity verification for <strong>{safe_name}</strong>.</p>
+        <p><a href="{html.escape(url, quote=True)}" target="_blank">Open the onboarding form</a></p>
+        <p>This link expires in <strong>{days} days</strong>. Do not forward it to anyone who should not act for the company.</p>
+        <p>Regards,<br><strong>Onboarding</strong></p>
+        """
+        ok, provider_msg = send_email_via_zeptomail(
+            sender_email=sender_email,
+            subject=subject[:200],
+            body=body,
+            recipient_email=(to_email or "").strip(),
+        )
+        return bool(ok), str(provider_msg or "")
+    except Exception as e:
+        current_app.logger.warning("send_company_kyb_invite_email failed: %s", e)
+        return False, str(e)
+
+
+def send_company_kyb_submitted_ops_email(*, to_emails, company_name, tenant_id):
+    """Tell platform ops a KYB pack is waiting."""
+    sender_email = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+    if not sender_email:
+        return False, "ZEPTO_SENDER_EMAIL not configured"
+    base = (current_app.config.get("BASE_URL") or "").rstrip("/")
+    review_url = f"{base}/admin/customers?kyb={int(tenant_id)}" if base else ""
+    subject = f"KYB ready for review: {company_name or 'company'}"
+    safe = html.escape(company_name or "company")
+    link = f'<p><a href="{html.escape(review_url, quote=True)}">Open customer registry</a></p>' if review_url.startswith("http") else ""
+    body = f"<p>KYB documents for <strong>{safe}</strong> were submitted.</p>{link}"
+    last = (False, "no recipients")
+    seen = set()
+    for addr in to_emails or []:
+        email = (addr or "").strip()
+        key = email.lower()
+        if not email or "@" not in email or key in seen:
+            continue
+        seen.add(key)
+        last = send_email_via_zeptomail(
+            sender_email=sender_email,
+            subject=subject[:200],
+            body=body,
+            recipient_email=email,
+        )
+    return last
+
+
+def send_company_kyb_changes_email(*, to_email, company_name, raw_token, note):
+    try:
+        from .tenant_kyb_service import kyb_link
+
+        sender_email = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        if not sender_email:
+            return False, "ZEPTO_SENDER_EMAIL not configured"
+        url = kyb_link(raw_token)
+        subject = f"Update required: {company_name or 'company'} verification"
+        safe_note = html.escape((note or "")[:2000])
+        body = f"""
+        <p>Please update the verification pack for <strong>{html.escape(company_name or 'your company')}</strong>.</p>
+        <p>{safe_note}</p>
+        <p><a href="{html.escape(url, quote=True)}" target="_blank">Open the onboarding form</a></p>
+        """
+        return send_email_via_zeptomail(
+            sender_email=sender_email,
+            subject=subject[:200],
+            body=body,
+            recipient_email=(to_email or "").strip(),
+        )
+    except Exception as e:
+        current_app.logger.warning("send_company_kyb_changes_email failed: %s", e)
         return False, str(e)

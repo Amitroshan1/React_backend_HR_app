@@ -159,12 +159,12 @@ def test_tenant_scope_drives_tenant_helpers_and_plan(app):
         assert get_current_tenant_id() == 1
 
 
-def test_job_tenants_skip_suspended_and_cancelled(app):
+def test_job_tenants_skip_suspended_cancelled_and_provisioning(app):
     with app.app_context():
         db.session.add(Tenant(id=5, name="Five", slug="five", plan="basic", status="cancelled"))
         db.session.add(Tenant(id=6, name="Six", slug="six", plan="basic", status="provisioning"))
         db.session.commit()
-        assert job_tenant_ids() == [1, 2, 3, 6]
+        assert job_tenant_ids() == [1, 2, 3]
 
 
 def test_one_company_failure_does_not_block_the_others(app):

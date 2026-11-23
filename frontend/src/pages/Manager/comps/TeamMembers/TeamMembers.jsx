@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { UserAvatar } from "../../../../components/UserAvatar";
 import { fetchTeamMembers } from "../../api";
 import "./TeamMembers.css";
+import { getAccessToken } from "../../../../utils/authSession";
 
 const MASTER_OPTIONS_API = "/api/auth/master-options";
 
@@ -17,7 +18,7 @@ export const TeamMembers = ({ filters, setFilters }) => {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
     if (token) {
       fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
         .then((res) => res.json().catch(() => ({})))

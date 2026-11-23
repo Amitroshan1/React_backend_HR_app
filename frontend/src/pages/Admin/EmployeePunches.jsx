@@ -4,6 +4,7 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { AdminBreadcrumb, commandCenterCrumbItem } from '../../components/layout/AdminBreadcrumb';
 import { formatDate } from '../../utils/dateFormat';
 import './EmployeePunches.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const PUNCHES_API = '/api/admin/employees';
 const MONTHS = [
@@ -62,7 +63,7 @@ const EmployeePunches = () => {
   }, [now]);
 
   const load = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!id || !token) {
       setLoading(false);
       setError('Unable to load punches');

@@ -276,6 +276,29 @@ def jwt_is_module_staff(role_fn, claims: Optional[dict] = None) -> bool:
     return bool(role_fn(claims))
 
 
+def is_department_admin_emp_type(emp_type: str) -> bool:
+    """HR Admin / Accounts Admin / Finance Admin — Admin panel plus their department, not full org Admin."""
+    compact = _compact_emp_type(emp_type)
+    if not compact or compact in ADMIN_EMP_TYPES or is_super_admin_emp_type(emp_type):
+        return False
+    words = compact.split()
+    if "admin" not in words:
+        return False
+    return (
+        is_hr_department(compact)
+        or is_accounts_department(compact)
+        or is_finance_department(compact)
+    )
+
+
+def can_access_admin_panel(claims: Optional[dict] = None) -> bool:
+    """Org Admin, platform Super Admin, or department Admin (HR/Accounts/Finance Admin)."""
+    claims = _jwt_claims(claims)
+    if is_org_admin(claims):
+        return True
+    return is_department_admin_emp_type(claims.get("emp_type") or "")
+
+
 def is_org_admin(claims: Optional[dict] = None) -> bool:
     """Company Admin, or the platform Super Admin on tenant 1."""
     claims = _jwt_claims(claims)
@@ -406,10 +429,12 @@ def can_access_for_client_export(claims: Optional[dict] = None) -> bool:
 
 
 def is_hr_department(name: str) -> bool:
-    n = (name or "").strip().lower()
+    n = " ".join((name or "").strip().lower().replace("-", " ").replace("_", " ").split())
     if not n:
         return False
     if n in HR_DEPARTMENT_ALIASES:
+        return True
+    if n == "hr" or n.startswith("hr "):
         return True
     return "human resource" in n
 

@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import AvatarEditor from 'react-avatar-editor';
+import { isDecodableImageFile } from '../../utils/validateImageFile';
 
 const FALLBACK_AVATAR =
     'data:image/svg+xml,' +
@@ -27,21 +28,47 @@ export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
 
     const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    const MAX_IMAGE_MB = 5;
 
-    const handleFileChange = (e) => {
+    const rejectFile = (input, message) => {
+        if (typeof onImageChange === 'function') {
+            onImageChange(null, message);
+        }
+        if (input) input.value = '';
+    };
+
+    const handleFileChange = async (e) => {
         const file = e.target.files[0];
-        if (file) {
-            const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
-            const isValidType = ALLOWED_IMAGE_TYPES.includes(file.type) || ALLOWED_EXTENSIONS.includes(ext);
-            if (!isValidType) {
-                if (typeof onImageChange === 'function') {
-                    onImageChange(null, 'Please upload only image files (JPEG, PNG, GIF, or WebP). Unsupported formats like .exe are not allowed.');
-                }
-                e.target.value = '';
-                return;
-            }
-            setImage(file);
-            setIsEditing(true);
+        if (!file) return;
+        const input = e.target;
+        const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
+        const isValidType = ALLOWED_IMAGE_TYPES.includes(file.type) || ALLOWED_EXTENSIONS.includes(ext);
+        if (!isValidType) {
+            rejectFile(input, 'Please upload only image files (JPEG, PNG, GIF, or WebP). Unsupported formats like .exe are not allowed.');
+            return;
+        }
+        if (file.size > MAX_IMAGE_BYTES) {
+            rejectFile(
+                input,
+                `Image is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed size is ${MAX_IMAGE_MB} MB.`
+            );
+            return;
+        }
+        const readable = await isDecodableImageFile(file);
+        if (!readable) {
+            rejectFile(input, 'This image file is corrupted or unreadable. Please upload a valid JPEG, PNG, GIF, or WebP.');
+            return;
+        }
+        setImage(file);
+        setIsEditing(true);
+    };
+
+    const handleEditorLoadFailure = () => {
+        setIsEditing(false);
+        setImage(imageUrl || '');
+        if (typeof onImageChange === 'function') {
+            onImageChange(null, 'Could not read this image. Use a JPEG, PNG, GIF, or WebP file under 5 MB.');
         }
     };
 
@@ -50,10 +77,12 @@ export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
         const canvas = editorRef.current.getImageScaledToCanvas();
         canvas.toBlob(
             (blob) => {
-                if (!blob) {
+                if (!blob || blob.size < 500) {
                     if (typeof onImageChange === 'function') {
-                        onImageChange(null, 'Could not process image. Try another photo or format.');
+                        onImageChange(null, 'Could not process image. Try another photo or a smaller file (max 5 MB).');
                     }
+                    setIsEditing(false);
+                    setImage(imageUrl || '');
                     return;
                 }
                 onImageChange(blob);
@@ -84,6 +113,7 @@ export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
                         borderRadius={70}
                         color={[255, 255, 255, 0.6]}
                         scale={1.2}
+                        onLoadFailure={handleEditorLoadFailure}
                     />
                     <div className="avatar-editor-actions">
                         <button className="save-btn" onClick={handleSave}>Save</button>
@@ -107,12 +137,13 @@ export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
                     <input
                         type="file"
                         id="avatar-input"
-                        accept="image/*"
+                        accept="image/jpeg,image/png,image/gif,image/webp"
                         onChange={handleFileChange}
                         style={{ display: 'none' }}
                     />
                 </div>
             )}
+            <p className="avatar-size-hint">JPEG, PNG, GIF or WebP. Max 5 MB.</p>
         </div>
     );
 }

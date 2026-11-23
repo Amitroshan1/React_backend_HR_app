@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { fetchAndOpenAuthenticatedFile } from '../utils/openBlobFile';
 import { toAuthContentUrl } from '../utils/secureFileUrl';
 import './PolicyAckModal.css';
+import { getAccessToken } from "../utils/authSession";
 
 const API_BASE = '/api/auth';
 
@@ -13,7 +14,7 @@ export function PolicyAckModal() {
   const [error, setError] = useState('');
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

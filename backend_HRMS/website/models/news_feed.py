@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from .. import db
+from ..money import Money
 
 
 def _default_tenant_id():
@@ -51,10 +52,10 @@ class Form16(db.Model):
     admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
     financial_year = db.Column(db.String(20), nullable=False)
     file_path = db.Column(db.String(255), nullable=False)
-    parsed_gross_salary = db.Column(db.Float, nullable=True)
-    parsed_tds_deducted = db.Column(db.Float, nullable=True)
-    parsed_taxable_income = db.Column(db.Float, nullable=True)
-    parsed_annual_tax = db.Column(db.Float, nullable=True)
+    parsed_gross_salary = db.Column(Money(), nullable=True)
+    parsed_tds_deducted = db.Column(Money(), nullable=True)
+    parsed_taxable_income = db.Column(Money(), nullable=True)
+    parsed_annual_tax = db.Column(Money(), nullable=True)
     data_source = db.Column(db.String(30), nullable=True)
     certificate_type = db.Column(db.String(30), nullable=True)
     part_type = db.Column(db.String(20), nullable=True)

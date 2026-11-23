@@ -236,6 +236,30 @@ def ensure_tenant_mailbox_columns(engine, logger) -> list[str]:
     return added
 
 
+def ensure_tenant_kyc_status_column(engine, logger) -> bool:
+    """Additive tenants.kyc_status; existing rows stay not_required."""
+    insp = inspect(engine)
+    if "tenants" not in insp.get_table_names():
+        return False
+    columns = {c["name"] for c in inspect(engine).get_columns("tenants")}
+    if "kyc_status" in columns:
+        return False
+    quoted = _q(engine.dialect.name, "tenants")
+    dialect = engine.dialect.name
+    default_sql = "'not_required'"
+    with engine.begin() as conn:
+        if dialect == "postgresql":
+            conn.execute(text(
+                f"ALTER TABLE {quoted} ADD COLUMN kyc_status VARCHAR(32) NOT NULL DEFAULT {default_sql}"
+            ))
+        else:
+            conn.execute(text(
+                f"ALTER TABLE {quoted} ADD COLUMN kyc_status VARCHAR(32) NOT NULL DEFAULT {default_sql}"
+            ))
+    logger.info("Added tenants.kyc_status")
+    return True
+
+
 def ensure_company_country_columns(engine, logger) -> dict[str, bool]:
     """Add nullable country fields to existing shared-DB company registry tables."""
     tables = set(inspect(engine).get_table_names())

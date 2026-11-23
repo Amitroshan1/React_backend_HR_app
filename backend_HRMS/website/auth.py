@@ -49,11 +49,23 @@ from .models.prev_com import PreviousCompany
 from .models.master_data import MasterData
 from datetime import datetime, date, timedelta
 from .datetime_utils import utc_now, isoformat_api, isoformat_punch_clock, IST, ensure_utc
-from flask_jwt_extended import create_access_token, get_jwt_identity, get_jwt, jwt_required
+from flask_jwt_extended import (
+    create_access_token,
+    get_jwt_identity,
+    get_jwt,
+    jwt_required,
+    set_access_cookies,
+    unset_jwt_cookies,
+)
 import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from flask import jsonify
-from .utility import is_wfh_allowed, is_on_leave
+from .utility import (
+    is_wfh_allowed,
+    punch_work_override_context,
+    existing_work_override_reason,
+    WORK_OVERRIDE_MIN_CHARS,
+)
 from .punch_aggregate import (
     ensure_punch_sessions_backfill,
     recompute_punch_aggregate,
@@ -426,13 +438,50 @@ def _issue_login_token(admin):
         "emp_type": admin.emp_type,
         "tenant_id": tenant_id,
     }
-    return {
+    payload = plan_payload(tenant_id=tenant_id, claims=login_claims)
+    payload.update({
         "success": True,
         "token": access_token,
         "session_timeout_minutes": session_timeout_minutes(admin.emp_type),
         "tenant_id": tenant_id,
-        **plan_payload(tenant_id=tenant_id, claims=login_claims),
-    }
+        "emp_type": admin.emp_type,
+        "email": login_claims["email"],
+        "user": {
+            "emp_type": admin.emp_type,
+            "tenant_id": tenant_id,
+            "email": login_claims["email"],
+        },
+    })
+    return payload
+
+
+def _cookies_should_be_secure() -> bool:
+    """Match the browser scheme. BASE_URL https must not force Secure on localhost HTTP."""
+    raw = os.getenv("JWT_COOKIE_SECURE")
+    if raw is not None and str(raw).strip() != "":
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    proto = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+    return bool(request.is_secure or proto == "https")
+
+
+def _login_response(admin):
+    """HttpOnly access cookie plus JSON token for this tab (not written to Local Storage)."""
+    payload = _issue_login_token(admin)
+    access_token = payload.get("token")
+    resp = jsonify(payload)
+    max_age = int(payload.get("session_timeout_minutes") or 15) * 60
+    current_app.config["JWT_COOKIE_SECURE"] = _cookies_should_be_secure()
+    unset_jwt_cookies(resp)
+    if access_token:
+        set_access_cookies(resp, access_token, max_age=max_age)
+    return resp, 200
+
+
+@auth.route("/logout", methods=["POST"])
+def logout_session():
+    resp = jsonify({"success": True, "message": "Logged out"})
+    unset_jwt_cookies(resp)
+    return resp, 200
 
 
 @auth.route("/request-otp", methods=["POST"])
@@ -630,7 +679,7 @@ def verify_otp():
     if len(choices) > 1:
         return jsonify(_tenant_selection_payload(value, choices)), 200
     admin = Admin.query.get(choices[0]["admin_id"])
-    return jsonify(_issue_login_token(admin)), 200
+    return _login_response(admin)
 
 
 @auth.route("/select-tenant", methods=["POST"])
@@ -676,7 +725,7 @@ def select_tenant():
             continue
         if not admin_login_allowed(admin):
             return _login_blocked_response([admin])
-        return jsonify(_issue_login_token(admin)), 200
+        return _login_response(admin)
 
     return jsonify({"success": False, "message": "You do not have access to this company"}), 403
 
@@ -699,7 +748,7 @@ def refresh_session():
     if not admin_login_allowed(admin):
         return _login_blocked_response([admin])
 
-    return jsonify(_issue_login_token(admin)), 200
+    return _login_response(admin)
 
 
 SENSITIVE_OTP_CHANNEL = "sensitive"
@@ -900,6 +949,23 @@ def _safe_doj(admin):
     return isoformat_api(d) if d is not None else None
 
 
+def _homepage_profile_gaps(admin, employee, leave_balance, managers):
+    """Fields HR still needs to set — used by the dashboard status panel."""
+    gaps = []
+    emp_id = (getattr(admin, "emp_id", None) or "").strip()
+    if not emp_id:
+        gaps.append({"key": "employee_id", "label": "Employee ID"})
+    if not getattr(admin, "doj", None):
+        gaps.append({"key": "doj", "label": "Date of joining"})
+    if leave_balance is None:
+        gaps.append({"key": "leave_balance", "label": "Leave balance"})
+    if not managers:
+        gaps.append({"key": "manager", "label": "Reporting manager"})
+    if employee is None:
+        gaps.append({"key": "employee_record", "label": "Employee profile"})
+    return gaps
+
+
 @auth.route('/employee/homepage', methods=['GET'])
 @jwt_required()
 def employee_homepage():
@@ -909,6 +975,7 @@ def employee_homepage():
         logger.exception("employee_homepage error")
         return jsonify({
             "success": False,
+            "error_code": "HOMEPAGE_UNAVAILABLE",
             "message": "Failed to load homepage",
             "error": str(e) if current_app.debug else None
         }), 500
@@ -944,10 +1011,18 @@ def _employee_homepage_impl():
         raw_id = get_jwt_identity()
         admin_id = int(raw_id) if raw_id is not None else None
     except (TypeError, ValueError):
-        return jsonify({"success": False, "message": "Invalid token"}), 401
+        return jsonify({
+            "success": False,
+            "error_code": "SESSION_EXPIRED",
+            "message": "Invalid token",
+        }), 401
 
     if admin_id is None:
-        return jsonify({"success": False, "message": "Invalid token"}), 401
+        return jsonify({
+            "success": False,
+            "error_code": "SESSION_EXPIRED",
+            "message": "Invalid token",
+        }), 401
 
     # ------------------------
     # 1. ADMIN DATA
@@ -956,6 +1031,7 @@ def _employee_homepage_impl():
     if not admin:
         return jsonify({
             "success": False,
+            "error_code": "USER_NOT_FOUND",
             "message": "User not found"
         }), 404
 
@@ -1063,6 +1139,13 @@ def _employee_homepage_impl():
         if punch_row_for_detail and getattr(punch_row_for_detail, "punch_date", None)
         else None
     )
+
+    work_override_ctx = punch_work_override_context(
+        admin.id, today, tenant_id=tenant_id_for_admin(admin)
+    )
+    requires_work_override_reason = bool(work_override_ctx) and not has_open_session
+    if requires_work_override_reason and existing_work_override_reason(punch_row_for_detail):
+        requires_work_override_reason = False
 
     # ------------------------
     # 4. LEAVE BALANCE + USAGE (from LeaveBalance table)
@@ -1231,6 +1314,11 @@ def _employee_homepage_impl():
             "working_hours": working_hours,
             "has_open_session": has_open_session,
             "requires_repeat_punch_reason": requires_repeat_punch_reason,
+            "requires_work_override_reason": requires_work_override_reason,
+            "work_override_kind": (work_override_ctx or {}).get("kind"),
+            "work_override_title": (work_override_ctx or {}).get("title"),
+            "work_override_message": (work_override_ctx or {}).get("message"),
+            "work_override_min_chars": WORK_OVERRIDE_MIN_CHARS,
             "overnight_attendance_date": overnight_attendance_date,
             "sessions": punch_sessions_json,
             "session_attendance_date": session_attendance_date,
@@ -1250,6 +1338,7 @@ def _employee_homepage_impl():
         "last_payslip": last_payslip_data,
         "my_payroll_history": my_payroll_history,
         "probation": probation,
+        "profile_gaps": _homepage_profile_gaps(admin, employee, leave_balance, managers),
         **plan_payload(),
     }), 200
 
@@ -1589,10 +1678,14 @@ def _upload_doc_profile_dict(upload_doc):
     """Serialize UploadDoc for profile / HR / Accounts APIs."""
     if not upload_doc:
         return {}
+    from .pii_crypto import pii_get
+
     return {
-        "aadhaar_number": upload_doc.aadhaar_number,
-        "pan_number": upload_doc.pan_number,
-        "bank_account_number": upload_doc.bank_account_number,
+        "aadhaar_number": pii_get(upload_doc, "aadhaar_number"),
+        "pan_number": pii_get(upload_doc, "pan_number"),
+        "bank_account_number": pii_get(upload_doc, "bank_account_number"),
+        "bank_account_last4": getattr(upload_doc, "bank_account_last4", None),
+        "pan_last4": getattr(upload_doc, "pan_last4", None),
         "bank_name": upload_doc.bank_name,
         "bank_branch_code": upload_doc.bank_branch_code,
         "ifsc_code": upload_doc.ifsc_code,
@@ -1653,11 +1746,15 @@ def _sync_upload_doc_to_employee_accounts(admin, upload_doc):
         db.session.add(rec)
     elif not rec.admin_id:
         rec.admin_id = admin.id
-    if upload_doc.pan_number:
-        rec.pan = upload_doc.pan_number
+    from .pii_crypto import pii_get, pii_set
+
+    pan = pii_get(upload_doc, "pan_number")
+    acct = pii_get(upload_doc, "bank_account_number")
+    if pan:
+        pii_set(rec, "pan", pan)
     bank_lines = []
-    if upload_doc.bank_account_number:
-        bank_lines.append(f"Account: {upload_doc.bank_account_number}")
+    if acct:
+        bank_lines.append(f"Account: {acct}")
     if upload_doc.bank_name:
         bank_lines.append(f"Bank: {upload_doc.bank_name}")
     if upload_doc.bank_branch_code:
@@ -1665,7 +1762,7 @@ def _sync_upload_doc_to_employee_accounts(admin, upload_doc):
     if upload_doc.ifsc_code:
         bank_lines.append(f"IFSC: {upload_doc.ifsc_code}")
     if bank_lines:
-        rec.bank_details = "\n".join(bank_lines)
+        pii_set(rec, "bank_details", "\n".join(bank_lines))
 
 
 def _static_upload_photo_url(filename):
@@ -1673,6 +1770,45 @@ def _static_upload_photo_url(filename):
     from .secure_file_service import secure_public_url_for_upload
 
     return secure_public_url_for_upload(filename)
+
+
+PROFILE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _upload_file_size_bytes(storage):
+    if storage is None:
+        return 0
+    cl = getattr(storage, "content_length", None)
+    try:
+        if cl is not None and int(cl) > 0:
+            return int(cl)
+    except (TypeError, ValueError):
+        pass
+    stream = getattr(storage, "stream", None)
+    if stream is None or not hasattr(stream, "seek"):
+        return 0
+    pos = stream.tell()
+    stream.seek(0, os.SEEK_END)
+    size = stream.tell()
+    stream.seek(pos)
+    return size
+
+
+def _image_bytes_are_valid(data: bytes) -> bool:
+    """Reject truncated/corrupt rasters that only have a valid extension."""
+    if not data or len(data) < 24:
+        return False
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return b"IEND" in data
+    if data[:2] == b"\xff\xd8":
+        has_frame = b"\xff\xc0" in data or b"\xff\xc1" in data or b"\xff\xc2" in data
+        return has_frame and b"\xff\xd9" in data
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return data[-1:] == b"\x3b"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        declared = int.from_bytes(data[4:8], "little")
+        return declared >= 16 and len(data) >= 8 + declared
+    return False
 
 
 def _photo_extension_from_upload(photo):
@@ -1765,9 +1901,26 @@ def upload_profile_photo():
     if not photo:
         return jsonify({"success": False, "message": "Invalid photo file"}), 400
 
+    if _upload_file_size_bytes(photo) > PROFILE_UPLOAD_MAX_BYTES:
+        return jsonify({
+            "success": False,
+            "message": "Image is too large. Maximum allowed size is 5 MB.",
+        }), 400
+
     ext = _photo_extension_from_upload(photo)
     if not ext:
         return jsonify({"success": False, "message": "Invalid file type. Allowed: png, jpg, jpeg, gif, webp"}), 400
+
+    photo_bytes = photo.read(PROFILE_UPLOAD_MAX_BYTES + 1)
+    try:
+        photo.stream.seek(0)
+    except Exception:
+        pass
+    if not _image_bytes_are_valid(photo_bytes):
+        return jsonify({
+            "success": False,
+            "message": "This image file is corrupted or unreadable. Please upload a valid JPEG, PNG, GIF, or WebP.",
+        }), 400
 
     try:
         employee = _ensure_employee_for_admin(admin)
@@ -2106,12 +2259,9 @@ def punch_in():
 
     today = date.today()
 
-    # ❌ Leave check
-    if is_on_leave(employee.id, today):
-        return jsonify({
-            "success": False,
-            "message": "You are on approved leave today"
-        }), 403
+    override_ctx = punch_work_override_context(
+        employee.id, today, tenant_id=tenant_id_for_admin(employee)
+    )
 
     # Unapproved WFH: do not block — require a written reason (same as outside geofence).
     # Only approved WFH may mark the session as is_wfh.
@@ -2162,6 +2312,25 @@ def punch_in():
             "success": False,
             "message": f"Maximum {MAX_PUNCH_SESSIONS_PER_DAY} punch sessions allowed per day.",
         }), 400
+
+    work_override_reason = (data.get("work_override_reason") or "").strip()
+    if override_ctx:
+        stored_override = existing_work_override_reason(punch)
+        if stored_override:
+            work_override_reason = work_override_reason or stored_override
+        elif len(work_override_reason) < WORK_OVERRIDE_MIN_CHARS:
+            return jsonify({
+                "success": False,
+                "message": override_ctx["message"],
+                "requires_work_override_reason": True,
+                "work_override_kind": override_ctx["kind"],
+                "work_override_title": override_ctx["title"],
+                "work_override_leave_type": override_ctx.get("leave_type"),
+                "work_override_holiday_name": override_ctx.get("holiday_name"),
+                "work_override_min_chars": WORK_OVERRIDE_MIN_CHARS,
+            }), 400
+        if len(work_override_reason) > 500:
+            work_override_reason = work_override_reason[:500]
 
     repeat_reason = (data.get("repeat_punch_reason") or data.get("repeat_reason") or "").strip()
     if closed_count > 0 and len(repeat_reason) < 3:
@@ -2242,6 +2411,12 @@ def punch_in():
         sess.source = "web"
     except Exception:
         pass
+    if override_ctx:
+        try:
+            sess.work_override_kind = override_ctx.get("kind")
+            sess.work_override_reason = work_override_reason
+        except Exception:
+            pass
     apply_session_geo_fields(sess, geo_result, direction="in")
     db.session.add(sess)
     punch.lat = sess.lat
@@ -2857,6 +3032,17 @@ def replace_education():
             if not qual or not inst or not start_val or not end_val:
                 continue
 
+            try:
+                marks_num = float(str(marks_val).replace("%", "").strip())
+            except (TypeError, ValueError):
+                marks_num = None
+            if marks_num is not None and marks_num > 100:
+                db.session.rollback()
+                return jsonify({
+                    "success": False,
+                    "message": "Marks Percentage cannot exceed 100.",
+                }), 400
+
             edu = Education(
                 admin_id=admin_id,
                 qualification=qual,
@@ -2910,52 +3096,66 @@ def save_previous_companies():
     if not isinstance(items, list):
         return jsonify({"success": False, "message": "items must be an array"}), 400
 
+    from .previous_employment import parse_experience_years, validate_previous_employment_dates
+
+    admin_dob = None
+    emp = getattr(admin, "employee_details", None)
+    if emp is not None and getattr(emp, "dob", None):
+        admin_dob = emp.dob
+
+    prepared = []
+    for item in items:
+        if _prev_employment_row_is_empty(item):
+            continue
+
+        com_name = (item.get("companyName") or "").strip()
+        designation = (item.get("designation") or "").strip()
+        dol_str = (item.get("dateOfLeaving") or "").strip()
+        exp_years = str(item.get("experienceYears") or "").strip()
+
+        if not com_name or com_name == "-":
+            return jsonify({
+                "success": False,
+                "message": "Company name is required for each previous employment entry.",
+            }), 400
+        if not designation or designation == "-":
+            return jsonify({
+                "success": False,
+                "message": "Designation is required for each previous employment entry.",
+            }), 400
+        if not dol_str:
+            return jsonify({
+                "success": False,
+                "message": "Date of leaving is required for each previous employment entry.",
+            }), 400
+
+        try:
+            dol = datetime.strptime(dol_str.split("T")[0], "%Y-%m-%d").date()
+        except (ValueError, AttributeError):
+            return jsonify({
+                "success": False,
+                "message": "Invalid date of leaving. Use YYYY-MM-DD.",
+            }), 400
+
+        yrs, yrs_err = parse_experience_years(exp_years)
+        if yrs_err:
+            return jsonify({"success": False, "message": yrs_err}), 400
+
+        doj, date_err = validate_previous_employment_dates(
+            dol,
+            yrs,
+            dob=admin_dob,
+            company_doj=getattr(admin, "doj", None),
+        )
+        if date_err:
+            return jsonify({"success": False, "message": date_err}), 400
+
+        prepared.append((com_name, designation, doj, dol))
+
     try:
         PreviousCompany.query.filter_by(admin_id=admin_id).delete()
-
-        for item in items:
-            if _prev_employment_row_is_empty(item):
-                continue
-
-            com_name = (item.get("companyName") or "").strip()
-            designation = (item.get("designation") or "").strip()
-            dol_str = (item.get("dateOfLeaving") or "").strip()
-            exp_years = str(item.get("experienceYears") or "").strip()
-
-            if not com_name or com_name == "-":
-                return jsonify({
-                    "success": False,
-                    "message": "Company name is required for each previous employment entry.",
-                }), 400
-            if not designation or designation == "-":
-                return jsonify({
-                    "success": False,
-                    "message": "Designation is required for each previous employment entry.",
-                }), 400
-            if not dol_str:
-                return jsonify({
-                    "success": False,
-                    "message": "Date of leaving is required for each previous employment entry.",
-                }), 400
-
-            try:
-                dol = datetime.strptime(dol_str.split("T")[0], "%Y-%m-%d").date()
-            except (ValueError, AttributeError):
-                return jsonify({
-                    "success": False,
-                    "message": "Invalid date of leaving. Use YYYY-MM-DD.",
-                }), 400
-
-            doj = dol
-            if exp_years:
-                try:
-                    yrs = float(str(exp_years).replace(",", "."))
-                    from datetime import timedelta
-                    doj = dol - timedelta(days=int(365.25 * yrs))
-                except (ValueError, TypeError):
-                    pass
-
-            pc = PreviousCompany(
+        for com_name, designation, doj, dol in prepared:
+            db.session.add(PreviousCompany(
                 admin_id=admin_id,
                 com_name=com_name,
                 designation=designation,
@@ -2968,9 +3168,7 @@ def save_previous_companies():
                 name_contact="-",
                 pf_num="-",
                 address="-",
-            )
-            db.session.add(pc)
-
+            ))
         db.session.commit()
         return jsonify({"success": True, "message": "Previous employment saved"}), 200
     except Exception as e:
@@ -3036,6 +3234,14 @@ def serve_upload_doc_file(field):
 @jwt_required()
 def upload_profile_file():
     """Upload a single profile document (Aadhaar, PAN, etc). Saves to static/uploads/profile/ and returns relative path."""
+    extra = 64 * 1024
+    req_len = request.content_length
+    if req_len is not None and req_len > PROFILE_UPLOAD_MAX_BYTES + extra:
+        return jsonify({
+            "success": False,
+            "message": "File is too large. Maximum allowed size is 5 MB.",
+        }), 413
+
     admin_id = request.form.get("admin_id")
     field = request.form.get("field")  # aadharFront, aadharBack, panFront, panBack, appointmentLetter, passbookFront
     if not admin_id or not field:
@@ -3057,6 +3263,12 @@ def upload_profile_file():
     if not file or not file.filename:
         return jsonify({"success": False, "message": "No file provided"}), 400
 
+    if _upload_file_size_bytes(file) > PROFILE_UPLOAD_MAX_BYTES:
+        return jsonify({
+            "success": False,
+            "message": "File is too large. Maximum allowed size is 5 MB.",
+        }), 400
+
     allowed = ("aadharFront", "aadharBack", "panFront", "panBack", "appointmentLetter", "passbookFront")
     education_cert = field.startswith("education_certificate") if isinstance(field, str) else False
     if field not in allowed and not education_cert:
@@ -3071,6 +3283,18 @@ def upload_profile_file():
         }), 400
     if education_cert and ext not in allowed_extensions:
         return jsonify({"success": False, "message": "Certificate must be .pdf, .jpg, or .png"}), 400
+
+    if ext in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        file_bytes = file.read(PROFILE_UPLOAD_MAX_BYTES + 1)
+        try:
+            file.stream.seek(0)
+        except Exception:
+            pass
+        if not _image_bytes_are_valid(file_bytes):
+            return jsonify({
+                "success": False,
+                "message": "This image file is corrupted or unreadable. Please upload a valid JPEG or PNG.",
+            }), 400
 
     import uuid as _uuid
     from .upload_tenancy import tenant_upload_path
@@ -3137,14 +3361,16 @@ def save_upload_docs():
     upload_doc = UploadDoc.query.filter_by(admin_id=admin_id).first()
 
     # Require identity numbers before accepting matching file uploads
+    from .pii_crypto import pii_get
+
     aadhaar_no = normalized_identity.get("aadhaar_number") or (
-        upload_doc.aadhaar_number if upload_doc else None
+        pii_get(upload_doc, "aadhaar_number") if upload_doc else None
     )
     pan_no = normalized_identity.get("pan_number") or (
-        upload_doc.pan_number if upload_doc else None
+        pii_get(upload_doc, "pan_number") if upload_doc else None
     )
     bank_ac = normalized_identity.get("bank_account_number") or (
-        upload_doc.bank_account_number if upload_doc else None
+        pii_get(upload_doc, "bank_account_number") if upload_doc else None
     )
     bank_name = normalized_identity.get("bank_name") or (
         upload_doc.bank_name if upload_doc else None

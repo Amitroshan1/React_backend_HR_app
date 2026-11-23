@@ -7,6 +7,7 @@ import { matchesListQuery } from './adminListQuery';
 import CountryField from './CountryField';
 import { canManageCustomerRegistry } from './customerRegistryAccess';
 import { emptyMailboxes, mailboxFieldsForPlan } from './mailboxPlan';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_CUSTOMERS = '/api/admin/customers';
 
@@ -64,6 +65,9 @@ export default function AdminCustomers() {
   const [message, setMessage] = useState('');
   const [companyQuery, setCompanyQuery] = useState('');
 
+  const [showKyb, setShowKyb] = useState(null);
+  const [kybDetail, setKybDetail] = useState(null);
+  const [kybNote, setKybNote] = useState('');
   const [showEdit, setShowEdit] = useState(null);
   const [showUpgrade, setShowUpgrade] = useState(null);
   const [showProvision, setShowProvision] = useState(null);
@@ -88,7 +92,7 @@ export default function AdminCustomers() {
     admin_name: '',
   });
 
-  const token = () => localStorage.getItem('token');
+  const token = () => getAccessToken();
   const headers = () => ({
     Authorization: `Bearer ${token()}`,
     'Content-Type': 'application/json',
@@ -135,9 +139,22 @@ export default function AdminCustomers() {
     navigate(location.pathname, { replace: true, state: null });
   }, [location.pathname, location.search, location.state, navigate]);
 
+  useEffect(() => {
+    const kybParam = new URLSearchParams(location.search).get('kyb');
+    if (!kybParam || !customers.length || showKyb) return;
+    const match = customers.find(
+      (row) => String(row.tenant_id) === String(kybParam) || String(row.id) === String(kybParam)
+    );
+    if (match && ['submitted', 'needs_fix', 'verified'].includes(match.kyc_status)) {
+      openKyb(match);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customers, location.search]);
+
   const stats = useMemo(() => {
     return {
       total: customers.length,
+      kybSubmitted: customers.filter((c) => c.kyc_status === 'submitted').length,
       provisioning: counts.provisioning ?? customers.filter((c) => c.status === 'provisioning').length,
       active: counts.active ?? customers.filter((c) => c.status === 'active').length,
       suspended: counts.suspended ?? customers.filter((c) => c.status === 'suspended').length,
@@ -157,6 +174,73 @@ export default function AdminCustomers() {
   );
 
   const openRegister = () => navigate('/admin/customers/register');
+
+  const openKyb = async (customer) => {
+    setShowKyb(customer);
+    setKybDetail(null);
+    setKybNote('');
+    setError('');
+    try {
+      const res = await fetch(`${API_CUSTOMERS}/${customer.id}/kyb`, { headers: headers() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Could not load KYB');
+      }
+      setKybDetail(data);
+    } catch (err) {
+      setError(err.message || 'Could not load KYB');
+    }
+  };
+
+  const approveKyb = async () => {
+    if (!showKyb) return;
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_CUSTOMERS}/${showKyb.id}/kyb/approve`, {
+        method: 'POST',
+        headers: headers(),
+        body: '{}',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Approve failed');
+      }
+      setShowKyb(null);
+      setKybDetail(null);
+      setMessage(`${showKyb.company_name} KYB approved — company is active`);
+      await loadCustomers();
+    } catch (err) {
+      setError(err.message || 'Approve failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const requestKybChanges = async () => {
+    if (!showKyb) return;
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_CUSTOMERS}/${showKyb.id}/kyb/request-changes`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({ note: kybNote }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Could not request changes');
+      }
+      setShowKyb(null);
+      setKybDetail(null);
+      setMessage(`Asked ${showKyb.company_name} to update documents`);
+      await loadCustomers();
+    } catch (err) {
+      setError(err.message || 'Could not request changes');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const openEdit = async (customer) => {
     editRequestRef.current = customer.id;
@@ -399,10 +483,14 @@ export default function AdminCustomers() {
         </header>
 
         {!loading && customers.length > 0 && (
-          <div className="cust-stats cust-stats--4">
+          <div className="cust-stats cust-stats--5">
             <div className="cust-stat">
               <span className="cust-stat__label">Companies</span>
               <strong>{stats.total}</strong>
+            </div>
+            <div className="cust-stat">
+              <span className="cust-stat__label">KYB submitted</span>
+              <strong>{stats.kybSubmitted}</strong>
             </div>
             <div className="cust-stat">
               <span className="cust-stat__label">Provisioning</span>
@@ -420,7 +508,7 @@ export default function AdminCustomers() {
         )}
 
         {message && <p className="cust-message">{message}</p>}
-        {error && !showUpgrade && !showEdit && !showProvision && (
+        {error && !showUpgrade && !showEdit && !showProvision && !showKyb && (
           <p className="cust-error" role="alert">
             {error}
           </p>
@@ -468,13 +556,14 @@ export default function AdminCustomers() {
                     <th>Country</th>
                     <th>Go-live</th>
                     <th>Status</th>
+                    <th>KYB</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleCustomers.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="cust-panel__empty">No companies match that search.</td>
+                      <td colSpan={8} className="cust-panel__empty">No companies match that search.</td>
                     </tr>
                   )}
                   {visibleCustomers.map((c) => (
@@ -502,7 +591,22 @@ export default function AdminCustomers() {
                           {c.status_label || c.status}
                         </span>
                       </td>
+                      <td>
+                        <span className={`cust-status cust-status--${c.kyc_status || 'not_required'}`}>
+                          {(c.kyc_status || 'not_required').replace(/_/g, ' ')}
+                        </span>
+                      </td>
                       <td className="cust-table__actions">
+                        {(c.kyc_status === 'submitted' || c.kyc_status === 'needs_fix' || c.kyc_status === 'verified') && (
+                          <button
+                            type="button"
+                            className="cust-action-btn cust-action-btn--ok"
+                            onClick={() => openKyb(c)}
+                            disabled={saving}
+                          >
+                            Review KYB
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="cust-action-btn"
@@ -532,7 +636,7 @@ export default function AdminCustomers() {
                             .env
                           </button>
                         )}
-                        {canGo(c, 'active') && (
+                        {canGo(c, 'active') && !['invite_sent', 'in_progress', 'submitted', 'needs_fix'].includes(c.kyc_status) && (
                           <button
                             type="button"
                             className="cust-action-btn cust-action-btn--ok"
@@ -959,6 +1063,129 @@ export default function AdminCustomers() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showKyb && (
+        <div className="cust-modal-backdrop" role="presentation">
+          <div className="cust-modal cust-modal--register" role="dialog" aria-labelledby="cust-kyb-title">
+            <header className="cust-modal__header">
+              <div>
+                <p className="cust-modal__eyebrow">KYB review</p>
+                <h2 id="cust-kyb-title">{showKyb.company_name}</h2>
+              </div>
+              <button
+                type="button"
+                className="cust-modal__close"
+                onClick={() => { setShowKyb(null); setKybDetail(null); }}
+                disabled={saving}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </header>
+            {!kybDetail ? (
+              <p className="cust-panel__empty">Loading pack…</p>
+            ) : (
+              <>
+                {error ? <p className="cust-error">{error}</p> : null}
+                <p>
+                  Status: <strong>{(kybDetail.tenant?.kyc_status || '').replace(/_/g, ' ')}</strong>
+                </p>
+                <dl className="kyb-review-dl">
+                  <div><dt>Legal name</dt><dd>{kybDetail.profile?.legal_name || '—'}</dd></div>
+                  <div><dt>Entity</dt><dd>{kybDetail.profile?.entity_type || '—'}</dd></div>
+                  <div><dt>GSTIN</dt><dd>{kybDetail.profile?.gstin || '—'}</dd></div>
+                  <div><dt>PAN</dt><dd>{kybDetail.profile?.pan || '—'}</dd></div>
+                  <div><dt>CIN</dt><dd>{kybDetail.profile?.cin || '—'}</dd></div>
+                  <div><dt>Signatory</dt><dd>{kybDetail.profile?.signatory_name || '—'} ({kybDetail.profile?.signatory_email || '—'})</dd></div>
+                </dl>
+                <p>
+                  Auto-check:
+                  {kybDetail.auto_check?.identity_ok ? ' IDs OK' : ` IDs: ${kybDetail.auto_check?.identity_error || 'incomplete'}`}
+                  {(kybDetail.auto_check?.missing_docs || []).length
+                    ? ` — missing ${kybDetail.auto_check.missing_docs.join(', ')}`
+                    : ' — required files present'}
+                </p>
+                {kybDetail.auto_check?.registry ? (
+                  <ul className="kyb-registry">
+                    <li>
+                      GST: {kybDetail.auto_check.registry.gst?.checksum_ok ? 'check digit valid' : 'check digit failed or blank'}
+                      {kybDetail.auto_check.registry.gst?.live_status
+                        ? ` — registry ${kybDetail.auto_check.registry.gst.live_status}`
+                        : ' — live GST status not queried (no paid API)'}
+                    </li>
+                    <li>
+                      MCA/CIN: {kybDetail.auto_check.registry.mca?.format_ok ? 'format valid' : 'no CIN or invalid'}
+                      {kybDetail.auto_check.registry.mca?.live_status
+                        ? ` — registry ${kybDetail.auto_check.registry.mca.live_status}`
+                        : ' — live MCA status not queried (no paid API)'}
+                    </li>
+                    {kybDetail.auto_check.registry.pan_matches_gstin != null ? (
+                      <li>PAN vs GSTIN: {kybDetail.auto_check.registry.pan_matches_gstin ? 'match' : 'mismatch'}</li>
+                    ) : null}
+                  </ul>
+                ) : null}
+                <ul>
+                  {(kybDetail.documents || []).map((doc) => (
+                    <li key={doc.id}>
+                      {doc.doc_type}: {doc.original_filename}{' '}
+                      <a
+                        href={`${API_CUSTOMERS}/${showKyb.id}/kyb/documents/${doc.id}`}
+                        onClick={async (event) => {
+                          event.preventDefault();
+                          const res = await fetch(`${API_CUSTOMERS}/${showKyb.id}/kyb/documents/${doc.id}`, {
+                            headers: { Authorization: `Bearer ${token()}` },
+                          });
+                          if (!res.ok) return;
+                          const blob = await res.blob();
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = doc.original_filename || doc.doc_type;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                      >
+                        Download
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+                {kybDetail.can_request_changes ? (
+                  <label className="cust-field cust-field--full">
+                    Request changes
+                    <textarea
+                      rows={3}
+                      value={kybNote}
+                      onChange={(e) => setKybNote(e.target.value)}
+                      placeholder="What the customer must fix (min 8 characters)"
+                    />
+                  </label>
+                ) : null}
+                <div className="cust-modal-actions">
+                  <button
+                    type="button"
+                    className="cust-btn cust-btn--ghost"
+                    onClick={() => { setShowKyb(null); setKybDetail(null); }}
+                    disabled={saving}
+                  >
+                    Close
+                  </button>
+                  {kybDetail.can_request_changes ? (
+                    <button type="button" className="cust-btn" onClick={requestKybChanges} disabled={saving}>
+                      Send back
+                    </button>
+                  ) : null}
+                  {kybDetail.can_approve ? (
+                    <button type="button" className="cust-btn cust-btn--primary" onClick={approveKyb} disabled={saving}>
+                      Approve & activate
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

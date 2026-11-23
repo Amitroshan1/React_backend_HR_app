@@ -25,6 +25,7 @@ login_manager = LoginManager()   # ✅ ADD THIS
 
 def create_app():
     app = Flask(__name__)
+    app.url_map.strict_slashes = False
 
     # ---------------------------
     # Config
@@ -49,14 +50,43 @@ def create_app():
     _configure_jobs(app)
 
     # JWT configuration
-    app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "super-secret-key")
+    _jwt_secret = (os.getenv("JWT_SECRET_KEY") or os.getenv("SECRET_KEY") or "").strip()
+    if len(_jwt_secret.encode("utf-8")) < 32:
+        import hashlib
+
+        _jwt_secret = hashlib.sha256((_jwt_secret or "hrms-jwt").encode("utf-8")).hexdigest()
+    app.config["JWT_SECRET_KEY"] = _jwt_secret
     # Default JWT lifetime; login/refresh override via session_timeout by emp_type.
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 900  # 15 minutes
+    from datetime import timedelta
+
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=15)
+    # Cookie + Authorization header. Cookie is HttpOnly; the SPA must not persist JWT in localStorage.
+    app.config["JWT_TOKEN_LOCATION"] = ["headers", "cookies"]
+    app.config["JWT_HEADER_NAME"] = "Authorization"
+    app.config["JWT_HEADER_TYPE"] = "Bearer"
+    app.config["JWT_ACCESS_COOKIE_NAME"] = "hrms_access"
+    app.config["JWT_COOKIE_HTTPONLY"] = True
+    app.config["JWT_COOKIE_SAMESITE"] = "Lax"
+    app.config["JWT_COOKIE_CSRF_PROTECT"] = False
+    app.config["JWT_SESSION_COOKIE"] = False
+    app.config["JWT_COOKIE_PATH"] = "/"
+    # Do not infer Secure from BASE_URL: that URL is the live site even when
+    # developers log in over http://localhost, and Secure cookies never stick.
+    _secure_cookie = os.getenv("JWT_COOKIE_SECURE")
+    if _secure_cookie is None or str(_secure_cookie).strip() == "":
+        app.config["JWT_COOKIE_SECURE"] = False
+    else:
+        app.config["JWT_COOKIE_SECURE"] = str(_secure_cookie).strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+
+    from .compensation_security import apply_compensation_platform
 
     app.config["BASE_URL"] = os.getenv(
         "BASE_URL",
         "https://solviotec.com"
     )
+    apply_compensation_platform(app)
 
     app.config["ZEPTO_API_KEY"] = os.getenv("ZEPTO_API_KEY")
     app.config["ZEPTO_SENDER_EMAIL"] = os.getenv("ZEPTO_SENDER_EMAIL")
@@ -184,6 +214,12 @@ def create_app():
     # Initialize extensions
     # ---------------------------
     db.init_app(app)
+    from .pii_crypto import register_pii_session_hooks
+
+    register_pii_session_hooks(db)
+    from .money_vault import register_money_vault_hooks
+
+    register_money_vault_hooks(db)
     bcrypt.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
@@ -225,7 +261,14 @@ def create_app():
     # Import Models
     # ---------------------------
     from .models.Admin_models import Admin
+    from .models.tenant_crypto_key import TenantCryptoKey  # noqa: F401
+    from .models.payroll_finance_fact import PayrollFinanceFact  # noqa: F401
     from .models.tenant import Tenant  # noqa: F401 — register for db.create_all
+    from .models.tenant_kyb import (  # noqa: F401 — register for db.create_all
+        TenantKybDocument,
+        TenantKybInvite,
+        TenantKybProfile,
+    )
     from .models.background_job import BackgroundJob  # noqa: F401 — register for db.create_all
     from .models.employee_profile_change import EmployeeProfileChangeRequest  # noqa: F401
     from .models.crm import CrmActivity, CrmDeal  # noqa: F401 — register for db.create_all
@@ -358,6 +401,7 @@ def create_app():
     from .attendance_realtime import attendance_realtime_bp
     from .attendance_realtime import routes as attendance_realtime_routes  # noqa: F401
     from .jobs_api import jobs_bp
+    from .tenant_kyb import tenant_kyb_bp
 
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -376,6 +420,7 @@ def create_app():
     app.register_blueprint(probation_api, url_prefix="/api/probation")
     app.register_blueprint(files_bp, url_prefix="/api/files")
     app.register_blueprint(jobs_bp, url_prefix="/api/jobs")
+    app.register_blueprint(tenant_kyb_bp, url_prefix="/api/public/company-kyb")
     # eSSL ADMS / iClock push (Phase 3A+: /iclock/health; 3B+: /iclock/cdata)
     app.register_blueprint(biometric_bp, url_prefix="/iclock")
     # HR Biometric Attendance reporting (read-only over biometric_logs)
@@ -747,6 +792,36 @@ def create_app():
             )
         except Exception as e:
             app.logger.warning("punch_sessions source columns migration skipped: %s", e)
+
+    def _ensure_punch_session_work_override_columns():
+        """Additive leave/holiday punch-in reason (does not cancel leave)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "punch_sessions"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            additions = []
+            if "work_override_kind" not in existing:
+                additions.append(("work_override_kind", "VARCHAR(20) NULL"))
+            if "work_override_reason" not in existing:
+                additions.append(("work_override_reason", "VARCHAR(500) NULL"))
+            if not additions:
+                return
+            with db.engine.begin() as conn:
+                for col, col_type in additions:
+                    if dialect == "postgresql":
+                        conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}'))
+                    else:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+            app.logger.info(
+                "Added punch_sessions work override columns: %s", [a[0] for a in additions]
+            )
+        except Exception as e:
+            app.logger.warning("punch_sessions work override columns migration skipped: %s", e)
 
     def _ensure_biometric_schema_tables():
         """
@@ -2165,7 +2240,7 @@ def create_app():
             for col in phase7_float_cols:
                 if col not in existing:
                     additions.append(
-                        (col, 'DOUBLE PRECISION NULL' if dialect == "postgresql" else "FLOAT NULL")
+                        (col, "NUMERIC(14,2) NULL" if dialect == "postgresql" else "DECIMAL(14,2) NULL")
                     )
             phase7_bool_cols = (
                 "include_nps_in_ctc",
@@ -2272,18 +2347,18 @@ def create_app():
                 return
             existing = {c["name"] for c in insp.get_columns(table)}
             specs = [
-                ("tds_computed", "FLOAT NULL"),
-                ("tds_final", "FLOAT NULL"),
-                ("lwf_computed", "FLOAT NULL"),
-                ("lwf_final", "FLOAT NULL"),
-                ("arrears_gross_computed", "FLOAT NULL"),
-                ("arrears_gross_final", "FLOAT NULL"),
-                ("leave_encashment_computed", "FLOAT NULL"),
-                ("leave_encashment_final", "FLOAT NULL"),
-                ("loan_recovery_computed", "FLOAT NULL"),
-                ("loan_recovery_final", "FLOAT NULL"),
-                ("reimbursement_computed", "FLOAT NULL"),
-                ("reimbursement_final", "FLOAT NULL"),
+                ("tds_computed", "DECIMAL(14,2) NULL"),
+                ("tds_final", "DECIMAL(14,2) NULL"),
+                ("lwf_computed", "DECIMAL(14,2) NULL"),
+                ("lwf_final", "DECIMAL(14,2) NULL"),
+                ("arrears_gross_computed", "DECIMAL(14,2) NULL"),
+                ("arrears_gross_final", "DECIMAL(14,2) NULL"),
+                ("leave_encashment_computed", "DECIMAL(14,2) NULL"),
+                ("leave_encashment_final", "DECIMAL(14,2) NULL"),
+                ("loan_recovery_computed", "DECIMAL(14,2) NULL"),
+                ("loan_recovery_final", "DECIMAL(14,2) NULL"),
+                ("reimbursement_computed", "DECIMAL(14,2) NULL"),
+                ("reimbursement_final", "DECIMAL(14,2) NULL"),
             ]
             for col, col_type in specs:
                 if col in existing:
@@ -2422,6 +2497,9 @@ def create_app():
             from .models.payroll_audit_log import PayrollAuditLog
 
             PayrollAuditLog.__table__.create(bind=db.engine, checkfirst=True)
+            from .models.compensation_view_log import CompensationViewLog
+
+            CompensationViewLog.__table__.create(bind=db.engine, checkfirst=True)
 
             insp = inspect(db.engine)
             table = MonthlyPayroll.__tablename__
@@ -2436,7 +2514,7 @@ def create_app():
             for col in float_cols:
                 if col in existing:
                     continue
-                col_type = "DOUBLE PRECISION NULL" if dialect == "postgresql" else "FLOAT NULL"
+                col_type = "NUMERIC(14,2) NULL" if dialect == "postgresql" else "DECIMAL(14,2) NULL"
                 stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
                 if dialect != "postgresql":
                     stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
@@ -2644,10 +2722,10 @@ def create_app():
                 return
             existing = {c["name"] for c in insp.get_columns(table)}
             specs = [
-                ("parsed_gross_salary", "FLOAT NULL"),
-                ("parsed_tds_deducted", "FLOAT NULL"),
-                ("parsed_taxable_income", "FLOAT NULL"),
-                ("parsed_annual_tax", "FLOAT NULL"),
+                ("parsed_gross_salary", "DECIMAL(14,2) NULL"),
+                ("parsed_tds_deducted", "DECIMAL(14,2) NULL"),
+                ("parsed_taxable_income", "DECIMAL(14,2) NULL"),
+                ("parsed_annual_tax", "DECIMAL(14,2) NULL"),
                 ("data_source", "VARCHAR(30) NULL"),
                 ("certificate_type", "VARCHAR(30) NULL"),
                 ("part_type", "VARCHAR(20) NULL"),
@@ -2974,6 +3052,7 @@ def create_app():
             _load_geo_config_overrides()
             _ensure_punch_session_geo_v2_columns()
             _ensure_punch_session_source_columns()
+            _ensure_punch_session_work_override_columns()
             _ensure_biometric_schema_tables()
             _ensure_biometric_tenant_ids()
             _ensure_biometric_attendance_day_backfill()
@@ -3005,9 +3084,16 @@ def create_app():
             _backfill_admin_employment_status()
             _ensure_deployed_customers_table()
             _ensure_tenants_table()
-            from .tenant_migrations import ensure_company_country_columns
+            from .tenant_migrations import ensure_company_country_columns, ensure_tenant_kyc_status_column
 
             ensure_company_country_columns(db.engine, app.logger)
+            ensure_tenant_kyc_status_column(db.engine, app.logger)
+            try:
+                TenantKybInvite.__table__.create(bind=db.engine, checkfirst=True)
+                TenantKybProfile.__table__.create(bind=db.engine, checkfirst=True)
+                TenantKybDocument.__table__.create(bind=db.engine, checkfirst=True)
+            except Exception as kyb_exc:
+                app.logger.warning("tenant KYB tables ensure skipped: %s", kyb_exc)
             _ensure_admin_tenant_id_column()
             _ensure_admin_tenant_uniques()
             _ensure_manager_contact_tenant_id()
@@ -3033,6 +3119,19 @@ def create_app():
             _ensure_phase6_hr_columns()
             _ensure_payroll_governance_columns()
             _ensure_payroll_batch_tables()
+            from .compensation_money_migrations import ensure_compensation_money_columns
+
+            ensure_compensation_money_columns(db.engine, app.logger)
+            from .pii_crypto import ensure_pii_columns, migrate_legacy_pii_plaintext
+
+            ensure_pii_columns(db.engine, app.logger)
+            migrate_legacy_pii_plaintext(app.logger)
+            from .money_vault import ensure_amount_blob_columns, migrate_legacy_amount_blobs
+
+            ensure_amount_blob_columns(db.engine, app.logger)
+            db.session.remove()
+            migrate_legacy_amount_blobs(app.logger)
+            db.session.remove()
             _ensure_leave_application_columns()
             _ensure_attendance_regularization_table()
             _ensure_employee_exit_history_columns()
@@ -3079,6 +3178,8 @@ def create_app():
     register_itam_media_commands(app)
     from .commands.jobs_worker import register_jobs_worker_command
     register_jobs_worker_command(app)
+    from .commands.compensation_keys import register_compensation_key_commands
+    register_compensation_key_commands(app)
 
     # ---------------------------
     # APScheduler: daily HR jobs (probation, compoff, leave accrual) - no manual intervention

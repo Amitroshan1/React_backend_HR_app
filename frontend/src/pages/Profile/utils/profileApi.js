@@ -11,6 +11,7 @@ import {
 } from './documentIdentity';
 import { normalizePhotoUrl as normalizePhotoUrlShared } from '../../../utils/userPhoto';
 import { isAlreadySignedFileUrl, toAuthContentUrl, toPathOnly } from '../../../utils/secureFileUrl';
+import { getAccessToken } from "../../../utils/authSession";
 
 export const API_BASE_URL = '/api/auth';
 
@@ -288,7 +289,7 @@ export function buildDocPayload(adminId, files, documentMeta = {}) {
 }
 
 function authHeaders(json = true) {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     const h = { Authorization: `Bearer ${token}` };
     if (json) h['Content-Type'] = 'application/json';
     return h;
@@ -423,7 +424,7 @@ export async function postUploadDocs(payload) {
 }
 
 export async function postUploadPhoto(blob) {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     const formData = new FormData();
     formData.append('photo', blob, 'profile.png');
     const res = await fetch(`${API_BASE_URL}/employee/upload-photo`, {

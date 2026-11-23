@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .. import db
 from ..datetime_utils import isoformat_api, utc_now
+from ..money import Money
 
 
 def _default_tenant_id():
@@ -96,7 +97,7 @@ class Offer(db.Model):
         unique=True,
         index=True,
     )
-    annual_ctc = db.Column(db.Float, nullable=True)
+    annual_ctc = db.Column(Money(), nullable=True)
     joining_date = db.Column(db.Date, nullable=True)
     status = db.Column(db.String(20), nullable=False, default="draft", index=True)
     notes = db.Column(db.Text, nullable=True)

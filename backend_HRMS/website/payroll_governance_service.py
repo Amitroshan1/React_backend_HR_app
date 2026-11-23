@@ -52,13 +52,15 @@ def log_payroll_audit(
     field_changes: dict | None = None,
     comment: str | None = None,
 ) -> PayrollAuditLog:
+    from .compensation_visibility import sanitize_field_changes
+
     entry = PayrollAuditLog(
         payroll_id=row.id,
         action=action,
         from_status=from_status,
         to_status=to_status,
         actor_admin_id=actor_admin_id,
-        field_changes=field_changes or None,
+        field_changes=sanitize_field_changes(field_changes) if field_changes else None,
         comment=(comment or "").strip() or None,
     )
     db.session.add(entry)

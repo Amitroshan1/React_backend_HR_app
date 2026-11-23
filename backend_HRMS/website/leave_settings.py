@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 
 _SETTINGS_PATH = Path(__file__).resolve().parent / "data" / "leave_settings.json"
 
@@ -69,6 +73,26 @@ def _load_file() -> dict:
         except (json.JSONDecodeError, OSError):
             pass
     return dict(_DEFAULTS)
+
+
+def current_leave_year_end(today=None) -> date:
+    """Last apply-able leave date for the current IST calendar year."""
+    today = today or datetime.now(IST).date()
+    return date(today.year, 12, 31)
+
+
+def leave_beyond_current_year_message(start_date, end_date, *, today=None):
+    """Reject leave that starts or ends after 31 Dec of the current IST year."""
+    if start_date is None or end_date is None:
+        return None
+    today = today or datetime.now(IST).date()
+    year_end = date(today.year, 12, 31)
+    if start_date > year_end or end_date > year_end:
+        return (
+            f"Leave can only be applied for dates in the current year "
+            f"(until {year_end.strftime('%d %b %Y')})."
+        )
+    return None
 
 
 def max_hr_backdate_days() -> int:

@@ -8,6 +8,7 @@ import { defaultFinancialYear, financialYearOptions } from "../../utils/financia
 import { authHeaders } from "../../utils/sensitiveDataAuth";
 import { LockSensitiveDataButton } from "../../components/security/SensitiveDataGate";
 import "./EmployeeForm16.css";
+import { getAccessToken } from "../../utils/authSession";
 
 const ACCOUNTS_API_URL = "/api/accounts";
 const AUTH_API_URL = "/api/auth";
@@ -83,7 +84,7 @@ export const EmployeeForm16 = () => {
             setError("User not loaded.");
             return;
         }
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) {
             setLoading(false);
             setError("Please log in.");
@@ -111,7 +112,7 @@ export const EmployeeForm16 = () => {
 
     const downloadFile = async (filePath, downloadName) => {
         if (!filePath) return;
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) {
             alert("Please log in to download.");
             return;
@@ -149,7 +150,7 @@ export const EmployeeForm16 = () => {
     };
 
     const downloadSummaryPdf = async () => {
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) {
             alert("Please log in to download.");
             return;

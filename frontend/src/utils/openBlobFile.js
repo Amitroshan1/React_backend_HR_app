@@ -9,6 +9,7 @@ import {
   toAuthContentUrl,
   isSecureApiFileUrl,
 } from "./secureFileUrl.js";
+import { getAccessToken } from "./authSession";
 
 const INLINE_VIEWABLE_PREFIXES = ["image/", "text/", "application/pdf"];
 
@@ -65,7 +66,7 @@ export async function fetchAndOpenAuthenticatedFile(url, {
   preferDownload = false,
   headers = {},
 } = {}) {
-  const authToken = token || (typeof localStorage !== "undefined" ? localStorage.getItem("token") : null);
+  const authToken = token || (typeof localStorage !== "undefined" ? getAccessToken() : null);
   if (!authToken) {
     throw new Error("Please log in again to view this file.");
   }

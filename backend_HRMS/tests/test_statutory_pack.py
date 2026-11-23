@@ -48,6 +48,12 @@ class TestStatutoryPack(unittest.TestCase):
         )
         self.assertAlmostEqual(heads["medical_allowance"], 40000 / 12.0, places=2)
 
+    def test_previous_pack_before_cutover(self):
+        prev = sp.previous_pack(date(2026, 10, 1))
+        self.assertIsNotNone(prev)
+        self.assertEqual(prev["pf_wage_cap_monthly"], 15000)
+        self.assertEqual(sp.pack_for_date(date(2026, 10, 1))["pf_wage_cap_monthly"], 25000)
+
     def test_esic_once_covered(self):
         self.assertEqual(logic.employee_esic_monthly(25000), 0.0)
         self.assertGreater(logic.employee_esic_monthly(25000, once_covered=True), 0.0)

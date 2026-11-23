@@ -10,11 +10,12 @@ import SessionRecordingPlayer from "./SessionRecordingPlayer";
 import "./HRAssessmentInvite.css";
 import "./LeaveApplicationUpdation.css";
 import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = "/api/HumanResource";
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 

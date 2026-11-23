@@ -15,6 +15,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import '../Admin/AdminSidebar.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const groups = [
   {
@@ -66,7 +67,7 @@ export default function ITSidebar({ onNavigate }) {
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      const token = localStorage.getItem('token');
+      const token = getAccessToken();
       fetch('/api/it/summary', {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })

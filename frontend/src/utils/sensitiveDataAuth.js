@@ -1,3 +1,4 @@
+import { getAccessToken } from "./authSession";
 const SENSITIVE_TOKEN_KEY = "sensitive_token";
 const SENSITIVE_EXPIRES_KEY = "sensitive_token_expires";
 const SENSITIVE_AUTH_CODE = "SENSITIVE_AUTH_REQUIRED";
@@ -36,7 +37,7 @@ export function isSensitiveSessionValid() {
 
 export function authHeaders(extra = {}) {
     const headers = { ...extra };
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
     if (token) {
         headers.Authorization = `Bearer ${token}`;
     }
@@ -86,7 +87,7 @@ export async function verifySensitiveOtp(otp) {
 
 export async function revokeSensitiveSession() {
     clearSensitiveToken();
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
     if (!token) return;
     try {
         await fetch(`${AUTH_API}/sensitive/revoke`, {

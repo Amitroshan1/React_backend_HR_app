@@ -16,10 +16,11 @@ DEFAULT_TENANT_ID = 1
 _SCOPED_TENANT: ContextVar[Optional[int]] = ContextVar("hrms_scoped_tenant", default=None)
 
 # Tenants in these states cannot log in and their sessions are rejected.
-BLOCKED_TENANT_STATUSES = frozenset({"suspended", "cancelled"})
+# provisioning: KYB / go-live not finished (customer JWT only; tenant 1 stays open).
+BLOCKED_TENANT_STATUSES = frozenset({"suspended", "cancelled", "provisioning"})
 TENANT_BLOCKED_CODE = "tenant_suspended"
 TENANT_BLOCKED_MESSAGE = (
-    "Your company's account is suspended. Please contact your administrator."
+    "Your company's account is not active yet. Please contact your administrator."
 )
 
 # URL parameters that always carry an Admin.id on HRMS routes.

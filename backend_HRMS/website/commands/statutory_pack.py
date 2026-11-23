@@ -97,10 +97,18 @@ def _normalize_pack(raw: dict) -> dict:
         "effective_from": str(raw.get("effective_from") or ""),
         "effective_to": raw.get("effective_to"),
         "source": str(raw.get("source") or ""),
-        "pf_wage_cap_monthly": float(raw.get("pf_wage_cap_monthly") or 15000),
+        "pf_wage_cap_monthly": float(
+            raw["pf_wage_cap_monthly"]
+            if raw.get("pf_wage_cap_monthly") is not None
+            else _FALLBACKS[-1]["pf_wage_cap_monthly"]
+        ),
         "pf_rate": float(raw.get("pf_rate") or 12),
         "eps_rate": float(raw.get("eps_rate") or 8.33),
-        "eps_contrib_max": float(raw.get("eps_contrib_max") or 1250),
+        "eps_contrib_max": float(
+            raw["eps_contrib_max"]
+            if raw.get("eps_contrib_max") is not None
+            else _FALLBACKS[-1]["eps_contrib_max"]
+        ),
         "pf_admin_pct": float(raw.get("pf_admin_pct") or 0.5),
         "edli_pct": float(raw.get("edli_pct") or 0.5),
         "esic_gross_cap": float(raw.get("esic_gross_cap") or 21001),
@@ -144,6 +152,16 @@ def pack_for_date(as_of=None) -> dict:
 
 def current_pack() -> dict:
     return pack_for_date(date.today())
+
+
+def previous_pack(as_of=None) -> dict | None:
+    """Statutory pack immediately before the one active on as_of."""
+    current = pack_for_date(as_of)
+    packs = list_statutory_packs()
+    idx = next((i for i, pack in enumerate(packs) if pack.get("id") == current.get("id")), None)
+    if idx is None or idx <= 0:
+        return None
+    return packs[idx - 1]
 
 
 def pf_wage_cap_monthly(as_of=None, *, unrestricted: bool = False) -> float:

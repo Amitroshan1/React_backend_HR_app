@@ -4,6 +4,7 @@ import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import "./Requests/RequestCard.css";
 import "../../IT/ReturnRequests.css";
 import { formatDate } from "../../../utils/dateFormat";
+import { getAccessToken } from "../../../utils/authSession";
 
 const NOC_ACCEPT = ".pdf,.doc,.docx,.png,.jpg,.jpeg";
 
@@ -292,7 +293,7 @@ export const DepartmentNocPanel = ({
   };
 
   const handleDownload = async (req) => {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
     if (!token || !req?.id) return;
     try {
       const res = await fetch(`${apiBase}/noc-requests/${req.id}/download`, {

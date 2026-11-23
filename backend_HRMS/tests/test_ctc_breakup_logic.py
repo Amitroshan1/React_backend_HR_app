@@ -176,6 +176,42 @@ class CtcBreakupLogicTests(unittest.TestCase):
         self.assertAlmostEqual(with_bonus - without, expected_bonus, places=1)
         self.assertEqual(logic.statutory_bonus_yearly(50000, 0, 8.33), 0.0)
 
+    def test_monthly_times_twelve_equals_yearly(self):
+        wage = 10000.01
+        as_of = "2026-10-01"
+        pf_m = logic.employer_pf_monthly(wage, as_of=as_of)
+        pf_y = logic.employer_pf_yearly(wage, as_of=as_of)
+        self.assertEqual(pf_y, logic.annualize_monthly(pf_m))
+        self.assertEqual(pf_y, logic.money2(pf_m * 12))
+        costs = logic.employer_costs_summary(
+            wage, 18000, 0, 0, as_of=as_of, include_pf_admin_in_ctc=True, include_edli_in_ctc=True
+        )
+        for monthly_key, yearly_key in (
+            ("employer_pf_monthly", "employer_pf_yearly"),
+            ("pf_admin_monthly", "pf_admin_yearly"),
+            ("edli_monthly", "edli_yearly"),
+            ("gratuity_monthly", "gratuity_yearly"),
+            ("employer_esic_monthly", "employer_esic_yearly"),
+        ):
+            self.assertEqual(
+                costs[yearly_key],
+                logic.annualize_monthly(costs[monthly_key]),
+                msg=yearly_key,
+            )
+
+    def test_fixed_plus_variable_equals_total(self):
+        solved = logic.reverse_ctc_breakup(
+            600000, hra_pct=40, mediclaim_yearly=0, variable_ctc_annual=50000.25
+        )
+        self.assertEqual(
+            solved["total_ctc_annual"],
+            logic.total_ctc_annual(solved["fixed_ctc_annual"], solved["variable_ctc_annual"]),
+        )
+        self.assertEqual(
+            solved["total_ctc_annual"],
+            logic.money2(solved["fixed_ctc_annual"] + solved["variable_ctc_annual"]),
+        )
+
     def test_lwf_in_fixed_ctc(self):
         without = logic.annual_ctc_from_monthly(
             50000, 40, 10000, 0,

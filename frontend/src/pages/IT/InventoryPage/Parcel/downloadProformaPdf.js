@@ -193,7 +193,7 @@ export async function downloadProformaPdf(invoice) {
   doc.setTextColor(15, 23, 42);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.text("For SAFFO SOLUTION TECHNOLOGY", PAGE_W - MARGIN, y, { align: "right" });
+  doc.text("For Saffo Solution Technology", PAGE_W - MARGIN, y, { align: "right" });
   y += 16;
   doc.setDrawColor(148, 163, 184);
   doc.line(PAGE_W - 70, y, PAGE_W - MARGIN, y);

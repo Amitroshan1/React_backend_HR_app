@@ -1602,8 +1602,12 @@ def manager_apply_leave_on_behalf():
 
     leave_type = (payload.get("leave_type") or "").strip()
     reason = (payload.get("reason") or "").strip()
-    if not leave_type or not reason:
-        return jsonify({"success": False, "message": "leave_type and reason are required"}), 400
+    if not leave_type and not reason:
+        return jsonify({"success": False, "message": "Leave type and reason are required"}), 400
+    if not leave_type:
+        return jsonify({"success": False, "message": "Please select a leave type"}), 400
+    if not reason:
+        return jsonify({"success": False, "message": "Please enter a reason"}), 400
     if len(reason) < 10:
         return jsonify({"success": False, "message": "Reason must be at least 10 characters long"}), 400
     if len(reason) > LEAVE_REASON_MAX_LEN:
@@ -1627,6 +1631,11 @@ def manager_apply_leave_on_behalf():
             "success": False,
             "message": "Managers can apply leave only for today or future dates. Contact HR for backdated leave.",
         }), 400
+    year_err = leave_cfg.leave_beyond_current_year_message(
+        start_date, end_date, today=today_ist
+    )
+    if year_err:
+        return jsonify({"success": False, "message": year_err}), 400
 
     target = get_admin_in_tenant(admin_id, tenant_id_for_admin(manager_admin))
     if not target:

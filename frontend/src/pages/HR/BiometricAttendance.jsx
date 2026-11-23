@@ -8,11 +8,12 @@ import {
   pickPrimaryDevice,
 } from './deviceStatusDisplay';
 import './BiometricAttendance.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = '/api/hr/biometric';
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 

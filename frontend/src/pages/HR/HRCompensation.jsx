@@ -5,6 +5,7 @@ import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './OffboardingDashboard.css';
 import './HrUpdatesShared.css';
 import './HRCompensation.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -31,7 +32,7 @@ export const HRCompensation = ({ onBack }) => {
   const MERIT_RATINGS = ['Excellent', 'Good', 'Average', 'Needs Improvement'];
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

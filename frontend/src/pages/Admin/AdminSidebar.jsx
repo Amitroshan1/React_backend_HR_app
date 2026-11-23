@@ -126,6 +126,9 @@ export default function AdminSidebar({ onNavigate, platform = false, user }) {
           }),
         };
       }
+      if (group.id === 'account' && isPlatformSuperAdmin(user)) {
+        return { ...group, items: [] };
+      }
       return group;
     })
     .filter((group) => group.items.length > 0);

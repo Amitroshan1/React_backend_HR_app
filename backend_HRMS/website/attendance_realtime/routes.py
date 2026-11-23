@@ -25,12 +25,12 @@ OUTBOX_POLL_SEC = 2.0
 
 def _authenticate_viewer() -> Tuple[Optional[Admin], Optional[Response]]:
     """
-    Resolve viewer from Authorization header or access_token query
+    Resolve viewer from Authorization header, HttpOnly cookie, or access_token query
     (EventSource cannot set headers).
     """
     admin = None
     try:
-        verify_jwt_in_request(optional=True, locations=["headers"])
+        verify_jwt_in_request(optional=True, locations=["headers", "cookies"])
         raw = get_jwt_identity()
         if raw is not None:
             admin = Admin.query.get(int(raw))
@@ -62,7 +62,7 @@ def attendance_events_sse():
     """
     Server-Sent Events stream of attendance.updated notifications.
 
-    Auth: Bearer JWT header OR ?access_token= (for EventSource).
+    Auth: Bearer JWT header, HttpOnly cookie, or ?access_token= (for EventSource).
     Does not accept employee_id as an authorization grant.
     """
     viewer, err = _authenticate_viewer()

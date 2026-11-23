@@ -1,41 +1,43 @@
-const STORAGE_KEY = 'hrms_plan_context';
+import { PLAN_CONTEXT_STORAGE_KEY } from './clientPrivacy';
 
-export function setPlanContext(plan, features, extras = {}) {
+const EMPTY_PLAN = Object.freeze({
+  plan: 'essential',
+  features: [],
+  is_platform_super_admin: false,
+});
+
+let _planContext = { ...EMPTY_PLAN };
+
+function dropLegacyPlanDisk() {
   try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        plan: plan || 'essential',
-        features: Array.isArray(features) ? features : [],
-        is_platform_super_admin: Boolean(extras.is_platform_super_admin),
-      })
-    );
+    localStorage.removeItem(PLAN_CONTEXT_STORAGE_KEY);
   } catch {
     /* ignore */
   }
+}
+
+dropLegacyPlanDisk();
+
+export function setPlanContext(plan, features, extras = {}) {
+  _planContext = {
+    plan: plan || 'essential',
+    features: Array.isArray(features) ? features : [],
+    is_platform_super_admin: Boolean(extras.is_platform_super_admin),
+  };
+  dropLegacyPlanDisk();
 }
 
 export function clearPlanContext() {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
+  _planContext = { ...EMPTY_PLAN };
+  dropLegacyPlanDisk();
 }
 
 export function getPlanContext() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { plan: 'essential', features: [], is_platform_super_admin: false };
-    const parsed = JSON.parse(raw);
-    return {
-      plan: parsed.plan || 'essential',
-      features: Array.isArray(parsed.features) ? parsed.features : [],
-      is_platform_super_admin: Boolean(parsed.is_platform_super_admin),
-    };
-  } catch {
-    return { plan: 'essential', features: [], is_platform_super_admin: false };
-  }
+  return {
+    plan: _planContext.plan || 'essential',
+    features: Array.isArray(_planContext.features) ? _planContext.features : [],
+    is_platform_super_admin: Boolean(_planContext.is_platform_super_admin),
+  };
 }
 
 export function hasFeature(featureKey) {
@@ -60,20 +62,66 @@ export function isPlatformSuperAdmin(user) {
   return tid === 1 && (et === 'super admin' || et.replace(/\s+/g, '') === 'superadmin');
 }
 
+function compactEmpType(user) {
+  return String(user?.emp_type || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
 export function isCompanyAdmin(user) {
-  const et = String(user?.emp_type || user?.department || '').trim().toLowerCase();
+  const et = compactEmpType(user) || String(user?.department || '').trim().toLowerCase();
   return ['admin', 'administrator', 'administration'].includes(et);
 }
 
+/** HR Admin / Accounts Admin / Finance Admin — not company Admin or Super Admin. */
+export function isDepartmentAdmin(user) {
+  const et = compactEmpType(user);
+  if (!et || isCompanyAdmin(user) || isPlatformSuperAdmin(user)) return false;
+  if (!et.split(' ').includes('admin')) return false;
+  return (
+    et === 'hr' ||
+    et.startsWith('hr ') ||
+    et.includes('human resource') ||
+    et === 'finance' ||
+    et.startsWith('finance ') ||
+    et === 'account' ||
+    et.startsWith('account')
+  );
+}
+
 export function isAdminUser(user) {
-  return isCompanyAdmin(user) || isPlatformSuperAdmin(user);
+  return isCompanyAdmin(user) || isPlatformSuperAdmin(user) || isDepartmentAdmin(user);
+}
+
+/** Super Admin and company Admin land on Admin; department Admins keep the punch dashboard. */
+export function postLoginHomePath(user) {
+  if (isDepartmentAdmin(user)) return '/dashboard';
+  if (isCompanyAdmin(user) || isPlatformSuperAdmin(user)) return '/admin';
+  return '/dashboard';
+}
+
+export function userFromAccessToken(token) {
+  try {
+    const part = String(token || '').split('.')[1];
+    if (!part) return {};
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/');
+    const json = JSON.parse(atob(padded));
+    return {
+      emp_type: json.emp_type,
+      tenant_id: json.tenant_id,
+    };
+  } catch {
+    return {};
+  }
 }
 
 export function isHrUser(user) {
   const et = String(user?.emp_type || user?.department || '').trim().toLowerCase().replace(/-/g, ' ');
   const normalized = et.replace(/\s+/g, ' ').trim();
   if (isCompanyAdmin(user) || isPlatformSuperAdmin(user)) return true;
-  return ['hr', 'human resource', 'human resources'].includes(normalized);
+  return normalized === 'hr' || normalized.startsWith('hr ') || normalized.includes('human resource');
 }
 
 export function isFinanceUser(user) {
@@ -86,7 +134,7 @@ export function isAccountUser(user) {
   const et = String(user?.emp_type || user?.department || '').trim().toLowerCase().replace(/-/g, ' ');
   const normalized = et.replace(/\s+/g, ' ').trim();
   if (isPlatformSuperAdmin(user)) return true;
-  return ['account', 'accounts', 'accountant'].includes(normalized);
+  return normalized === 'account' || normalized.startsWith('account');
 }
 
 export function isItUser(user) {

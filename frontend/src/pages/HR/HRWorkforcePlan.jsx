@@ -3,6 +3,7 @@ import { ArrowLeft, BarChart3, Plus, RefreshCw } from 'lucide-react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './OffboardingDashboard.css';
 import './HrUpdatesShared.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -22,7 +23,7 @@ export const HRWorkforcePlan = ({ onBack, circleOptions = [], empTypeOptions = [
   const [saving, setSaving] = useState(false);
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

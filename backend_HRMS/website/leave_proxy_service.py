@@ -1,4 +1,4 @@
-"""Shared leave creation for HR/manager proxy and attendance regularization approval."""
+"""Shared leave creation for HR/manager proxy leave."""
 from __future__ import annotations
 
 from . import db

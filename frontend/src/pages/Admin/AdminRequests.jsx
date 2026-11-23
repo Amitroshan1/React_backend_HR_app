@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, ClipboardCheck, MapPin } from 'lucide-react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './AdminDashboard.css';
+import { getAccessToken } from "../../utils/authSession";
 
 export default function AdminRequests() {
   const navigate = useNavigate();
   const [pendingCount, setPendingCount] = useState(0);
 
   const loadPending = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     fetch('/api/admin/employee-change-requests?status=pending', {
       headers: { Authorization: `Bearer ${token}` },

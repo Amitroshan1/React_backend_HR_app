@@ -11,11 +11,12 @@ import {
 import { formatDateTimeDDMMYYYY } from "../../../utils/dateFormat";
 import { mapQueryToTicket, statusBadgeLabel } from "./OpenTicket";
 import "./OpenTicket.css";
+import { getAccessToken } from "../../../utils/authSession";
 
 const QUERY_API_BASE = "/api/query";
 
 const authHeaders = () => {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

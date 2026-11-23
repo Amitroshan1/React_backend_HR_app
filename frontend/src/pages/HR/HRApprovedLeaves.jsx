@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { BadgeCheck, CalendarDays, Clock3, Inbox, RotateCcw } from "lucide-react";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDate } from "../../utils/dateFormat";
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = "/api/HumanResource";
 
@@ -18,7 +19,7 @@ const STAGE_TABS = [
 ];
 
 function authHeaders() {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

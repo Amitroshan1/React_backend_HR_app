@@ -453,6 +453,11 @@ def resolve_day_status(ctx: AttendanceMonthContext, current_day: date) -> dict:
             "punch_out": _fmt_time(punch.punch_out),
             "work_hours": str(punch.today_work) if punch.today_work else None,
         })
+        if holiday:
+            day_status["details"]["holiday_name"] = holiday.holiday_name
+            day_status["details"]["worked_on_holiday"] = True
+        if ctx.is_on_leave_approved(current_day):
+            day_status["details"]["worked_on_leave"] = True
 
     elif holiday:
         day_status["status"] = "HOLIDAY_OPTIONAL" if holiday.is_optional else "HOLIDAY"

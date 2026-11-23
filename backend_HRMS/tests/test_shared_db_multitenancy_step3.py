@@ -4,6 +4,8 @@ import pkgutil
 from datetime import timedelta
 from unittest.mock import patch
 
+from urllib.parse import unquote
+
 import pytest
 from flask import Flask, jsonify
 from flask_jwt_extended import JWTManager, create_access_token, decode_token, jwt_required
@@ -24,6 +26,23 @@ from website.models.tenant import Tenant  # noqa: E402
 from website.tenant_context import is_session_token  # noqa: E402
 
 OTP_CODE = "123456"
+
+
+def _access_jwt_from_response(res):
+    body = res.get_json() or {}
+    if body.get("token"):
+        return body["token"]
+    found = []
+    for header in res.headers.getlist("Set-Cookie"):
+        part = header.split(";", 1)[0]
+        if "=" not in part:
+            continue
+        _name, value = part.split("=", 1)
+        raw = unquote(value.strip().strip('"'))
+        if raw.count(".") == 2 and len(raw) > 20:
+            found.append(raw)
+    assert found, res.headers.getlist("Set-Cookie")
+    return found[0]
 
 
 @pytest.fixture()
@@ -105,10 +124,10 @@ def test_single_account_logs_in_directly(app):
     res = _verify(client)
     body = res.get_json()
     assert res.status_code == 200, body
-    assert body.get("token")
     assert "requires_tenant_selection" not in body
+    jwt = _access_jwt_from_response(res)
     with app.app_context():
-        assert decode_token(body["token"])["tenant_id"] == 1
+        assert decode_token(jwt)["tenant_id"] == 1
 
 
 def test_multiple_accounts_require_company_choice(app):
@@ -140,8 +159,9 @@ def test_select_tenant_issues_token_for_chosen_company(app):
     res = client.post("/api/auth/select-tenant", json={"selection_token": sel, "tenant_id": 2})
     body = res.get_json()
     assert res.status_code == 200, body
+    jwt = _access_jwt_from_response(res)
     with app.app_context():
-        claims = decode_token(body["token"])
+        claims = decode_token(jwt)
     assert claims["sub"] == "2"
     assert claims["tenant_id"] == 2
     assert "token_type" not in claims

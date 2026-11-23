@@ -7,6 +7,7 @@ import { canManageCustomerRegistry } from './customerRegistryAccess';
 import { useUser } from '../../components/layout/UserContext';
 import { isPlatformSuperAdmin } from '../../utils/planFeatures';
 import './AdminLayout.css';
+import { getAccessToken, hasSignedInHint } from "../../utils/authSession";
 
 const PLATFORM_ONLY = ['/admin/crm', '/admin/customers', '/admin/customers/register', '/admin/analytics'];
 
@@ -21,9 +22,10 @@ export default function AdminLayout() {
   const isCommandCenter = path === '/admin';
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    canManageCustomerRegistry({ Authorization: `Bearer ${token}` }).then(setPlatform);
+    const token = getAccessToken();
+    if (!token && !hasSignedInHint()) return;
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    canManageCustomerRegistry(headers).then(setPlatform);
   }, []);
 
   useEffect(() => {

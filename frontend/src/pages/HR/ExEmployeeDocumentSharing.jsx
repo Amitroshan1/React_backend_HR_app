@@ -4,6 +4,7 @@ import { ArrowLeft, Mail, Plus, Trash2, Send } from 'lucide-react';
 import { personalEmailValidationError } from '../../utils/emailDomain';
 import './ExEmployeeDocumentSharing.css';
 import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -23,7 +24,7 @@ export function ExEmployeeDocumentSharing({ onBack }) {
   const [historyQuery, setHistoryQuery] = useState('');
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

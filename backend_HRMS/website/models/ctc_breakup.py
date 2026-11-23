@@ -4,6 +4,7 @@ from datetime import datetime
 
 from .. import db
 from ..datetime_utils import isoformat_api, utc_now
+from ..money import Money
 
 
 class CTCBreakup(db.Model):
@@ -18,60 +19,61 @@ class CTCBreakup(db.Model):
         index=True,
     )
 
-    # Earnings — Indian standard heads
-    basic_salary = db.Column(db.Float, nullable=True)
-    dearness_allowance = db.Column(db.Float, nullable=True)
-    hra = db.Column(db.Float, nullable=True)
+    # Earnings — Indian standard heads (NUMERIC 14,2)
+    basic_salary = db.Column(Money(), nullable=True)
+    dearness_allowance = db.Column(Money(), nullable=True)
+    hra = db.Column(Money(), nullable=True)
     hra_pct = db.Column(db.Float, nullable=True)
-    special_allowance = db.Column(db.Float, nullable=True)
-    conveyance_allowance = db.Column(db.Float, nullable=True)
-    medical_allowance = db.Column(db.Float, nullable=True)
-    lta_allowance = db.Column(db.Float, nullable=True)
-    other_allowance = db.Column(db.Float, nullable=True)  # legacy sum of allowance heads
-    gross_salary = db.Column(db.Float, nullable=True)
-    net_salary = db.Column(db.Float, nullable=True)
-    annual_ctc = db.Column(db.Float, nullable=True)  # target fixed CTC input
-    annual_ctc_computed = db.Column(db.Float, nullable=True)  # fixed CTC from components
-    variable_ctc_annual = db.Column(db.Float, nullable=True)
-    mediclaim_yearly = db.Column(db.Float, nullable=True)
+    special_allowance = db.Column(Money(), nullable=True)
+    conveyance_allowance = db.Column(Money(), nullable=True)
+    medical_allowance = db.Column(Money(), nullable=True)
+    lta_allowance = db.Column(Money(), nullable=True)
+    other_allowance = db.Column(Money(), nullable=True)  # legacy sum of allowance heads
+    gross_salary = db.Column(Money(), nullable=True)
+    net_salary = db.Column(Money(), nullable=True)
+    annual_ctc = db.Column(Money(), nullable=True)  # target fixed CTC input
+    annual_ctc_computed = db.Column(Money(), nullable=True)  # fixed CTC from components
+    variable_ctc_annual = db.Column(Money(), nullable=True)
+    mediclaim_yearly = db.Column(Money(), nullable=True)
 
     # Deductions
-    epf = db.Column(db.Float, nullable=True)
+    epf = db.Column(Money(), nullable=True)
     epf_mode = db.Column(db.String(20), nullable=True)
     epf_pct = db.Column(db.Float, nullable=True)
-    esic = db.Column(db.Float, nullable=True)
-    esic_employer = db.Column(db.Float, nullable=True)
-    ptax = db.Column(db.Float, nullable=True)
+    esic = db.Column(Money(), nullable=True)
+    esic_employer = db.Column(Money(), nullable=True)
+    ptax = db.Column(Money(), nullable=True)
     ptax_month = db.Column(db.String(7), nullable=True)
-    deductions_total = db.Column(db.Float, nullable=True)
+    deductions_total = db.Column(Money(), nullable=True)
 
     # Employer cost components (yearly / monthly)
-    gratuity_yearly = db.Column(db.Float, nullable=True)
-    gratuity_monthly = db.Column(db.Float, nullable=True)
-    employer_pf_yearly = db.Column(db.Float, nullable=True)
-    employer_pf_monthly = db.Column(db.Float, nullable=True)
-    employer_esic_yearly = db.Column(db.Float, nullable=True)
-    employer_esic_monthly = db.Column(db.Float, nullable=True)
-    pf_admin_yearly = db.Column(db.Float, nullable=True)
-    pf_admin_monthly = db.Column(db.Float, nullable=True)
-    edli_yearly = db.Column(db.Float, nullable=True)
-    edli_monthly = db.Column(db.Float, nullable=True)
-    statutory_bonus_yearly = db.Column(db.Float, nullable=True)
-    statutory_bonus_monthly = db.Column(db.Float, nullable=True)
-    lwf_employer_yearly = db.Column(db.Float, nullable=True)
-    lwf_employee_yearly = db.Column(db.Float, nullable=True)
+    gratuity_yearly = db.Column(Money(), nullable=True)
+    gratuity_monthly = db.Column(Money(), nullable=True)
+    employer_pf_yearly = db.Column(Money(), nullable=True)
+    employer_pf_monthly = db.Column(Money(), nullable=True)
+    employer_esic_yearly = db.Column(Money(), nullable=True)
+    employer_esic_monthly = db.Column(Money(), nullable=True)
+    pf_admin_yearly = db.Column(Money(), nullable=True)
+    pf_admin_monthly = db.Column(Money(), nullable=True)
+    edli_yearly = db.Column(Money(), nullable=True)
+    edli_monthly = db.Column(Money(), nullable=True)
+    statutory_bonus_yearly = db.Column(Money(), nullable=True)
+    statutory_bonus_monthly = db.Column(Money(), nullable=True)
+    lwf_employer_yearly = db.Column(Money(), nullable=True)
+    lwf_employee_yearly = db.Column(Money(), nullable=True)
     include_pf_admin_in_ctc = db.Column(db.Boolean, nullable=True, default=True)
     include_edli_in_ctc = db.Column(db.Boolean, nullable=True, default=True)
     include_statutory_bonus_in_ctc = db.Column(db.Boolean, nullable=True, default=False)
     include_lwf_in_ctc = db.Column(db.Boolean, nullable=True, default=False)
-    vpf_monthly = db.Column(db.Float, nullable=True)
+    vpf_monthly = db.Column(Money(), nullable=True)
     include_nps_in_ctc = db.Column(db.Boolean, nullable=True, default=False)
     nps_employer_pct = db.Column(db.Float, nullable=True)
     is_metro_hra = db.Column(db.Boolean, nullable=True)
-    reimbursement_monthly = db.Column(db.Float, nullable=True)
+    reimbursement_monthly = db.Column(Money(), nullable=True)
     ptax_state = db.Column(db.String(2), nullable=True)
     esic_covered = db.Column(db.Boolean, nullable=True, default=False)
     effective_from = db.Column(db.Date, nullable=True)
+    amount_blob = db.Column(db.LargeBinary, nullable=True)
 
     created_at = db.Column(db.DateTime, default=utc_now, nullable=True)
     updated_at = db.Column(

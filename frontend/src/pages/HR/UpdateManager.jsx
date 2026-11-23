@@ -3,6 +3,7 @@ import { ArrowLeft, Search, UserPlus, Users } from 'lucide-react';
 import './UpdateManager.css';
 import { usePersistedView } from '../../hooks/usePersistedView';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { getAccessToken } from "../../utils/authSession";
 
 const UPDATE_MANAGER_VIEWS = ['landing', 'search', 'assign', 'details'];
 
@@ -53,7 +54,7 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
   const hasSearchedRef = useRef(false);
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

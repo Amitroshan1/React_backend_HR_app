@@ -13,7 +13,7 @@ _DEFAULTS = {
     "payroll_tds_approved_only": False,
     "block_employee_regime_change_after_submit": True,
     "regime_override_hr_only": True,
-    "employer_name": "Saffo Solution Technology LLP",
+    "employer_name": "Saffo Solution Technology",
     "employer_tan": "",
     "employer_pan": "",
     "form16_variance_tolerance_inr": 100,

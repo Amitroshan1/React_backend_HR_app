@@ -4,6 +4,7 @@ import { ArrowLeft, UserCheck, RefreshCw, ExternalLink } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './ConfirmationRequest.css';
 import './HrUpdatesShared.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -14,7 +15,7 @@ export const ConfirmationRequest = ({ onBack, onNavigate }) => {
   const [error, setError] = useState('');
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

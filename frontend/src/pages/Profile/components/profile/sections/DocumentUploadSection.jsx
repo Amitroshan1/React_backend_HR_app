@@ -92,13 +92,18 @@ export const DocumentUploadSection = ({
     return (
         <AccordionCard
             title="Accounts Document Upload"
-            subText="Enter identity numbers first, then upload matching documents. Appointment letter upload only."
+            subText="Enter identity numbers first, then upload matching documents (PDF, JPG or PNG, max 5 MB each). Appointment letter upload only."
             sectionName="documents"
             isExpanded={isExpanded}
             onToggle={onToggle}
             showMandatoryError={hasSectionErrors}
         >
             <div className="documents-body">
+                {isEditMode && (
+                    <p className="avatar-size-hint" style={{ textAlign: 'left', margin: '0 0 12px' }}>
+                        Each document must be 5 MB or smaller. Oversized files are not uploaded.
+                    </p>
+                )}
                 {hasSectionErrors && (
                     <div className="doc-validation-summary" role="alert">
                         <strong>Please complete the following before saving:</strong>

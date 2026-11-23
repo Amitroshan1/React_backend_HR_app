@@ -3,6 +3,7 @@ import { ArrowLeft, RefreshCw, Eye } from 'lucide-react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './offboarding-ui.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -30,7 +31,7 @@ const BUCKET_LABELS = {
 };
 
 function authHeaders() {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

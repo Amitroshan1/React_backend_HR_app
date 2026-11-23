@@ -161,6 +161,8 @@ def serialize_punch_sessions(punch_row, *, attendance_day_only=False):
                 "source": (getattr(s, "source", None) or "").strip().lower() or None,
                 "is_nhq_biometric": is_nhq_biometric,
                 "repeat_reason": (s.repeat_reason or "").strip() or None,
+                "work_override_kind": (getattr(s, "work_override_kind", None) or "").strip() or None,
+                "work_override_reason": (getattr(s, "work_override_reason", None) or "").strip() or None,
                 "extended_hours_reason": (getattr(s, "extended_hours_reason", None) or "").strip()
                 or None,
                 "auto_punched_out": bool(getattr(s, "auto_punched_out", False)),

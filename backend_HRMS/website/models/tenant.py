@@ -69,6 +69,7 @@ class Tenant(db.Model):
     mailbox_it = db.Column(db.String(200), nullable=True)
     mailbox_inventory = db.Column(db.String(200), nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    kyc_status = db.Column(db.String(32), nullable=False, default="not_required")
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     updated_at = db.Column(
         db.DateTime,
@@ -96,6 +97,7 @@ class Tenant(db.Model):
             "country": self.country or "",
             "mailboxes": {key: getattr(self, key) or "" for key in TENANT_MAILBOX_COLUMNS},
             "notes": self.notes or "",
+            "kyc_status": (self.kyc_status or "not_required").lower(),
             "created_at": isoformat_api(self.created_at),
             "updated_at": isoformat_api(self.updated_at),
         }

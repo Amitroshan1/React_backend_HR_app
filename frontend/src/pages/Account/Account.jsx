@@ -24,6 +24,7 @@ import {
   isValidFinancialYear,
 } from '../../utils/financialYear';
 import { notifyApiFailure, notifySuccess } from '../../utils/notify';
+import { getAccessToken } from "../../utils/authSession";
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax Regime'];
 const BULK_PAYROLL_MONTHS = [
@@ -384,6 +385,7 @@ export const Account = ()  => {
   const [ctcPendingRequest, setCtcPendingRequest] = useState(null);
   const [ctcAdoptBusy, setCtcAdoptBusy] = useState(false);
   const [ctcRecalcCount, setCtcRecalcCount] = useState(0);
+  const [ctcRecalcPrevCap, setCtcRecalcPrevCap] = useState(null);
   const [ctcPdfDownloading, setCtcPdfDownloading] = useState(false);
   const [ctcMonth, setCtcMonth] = useState(() => {
     const d = new Date();
@@ -611,7 +613,7 @@ export const Account = ()  => {
 
   useRefreshOnNavigate(() => {
     if (currentView !== 'main') return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
 
     const loadStats = async () => {
@@ -673,7 +675,7 @@ export const Account = ()  => {
     const loadTaxDeclSummary = async () => {
       try {
         setTaxDeclSummary((prev) => ({ ...prev, loading: true }));
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         const fyCurrent = defaultFinancialYear();
         const res = await fetch(
           `${API_BASE_URL}/tax-declarations?status=accounts_open&financial_year=${encodeURIComponent(fyCurrent)}`,
@@ -695,7 +697,7 @@ export const Account = ()  => {
   }, [canReviewTaxDeclarations, currentView, API_BASE_URL]);
 
   const loadPayrollSummary = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       const response = await fetch(`${API_BASE_URL}/employee-type-circle-summary`, {
@@ -722,7 +724,7 @@ export const Account = ()  => {
     if (switchView) {
       setCurrentView('employees');
     }
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       const response = await fetch(`${API_BASE_URL}/employees-by-type-circle?emp_type=${encodeURIComponent(dept)}&circle=${encodeURIComponent(circle)}`, {
@@ -777,7 +779,7 @@ export const Account = ()  => {
   const downloadProtectedFile = async (filePath, downloadName) => {
     const url = buildFileUrl(filePath);
     if (!url) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Session expired. Please login again.');
       return;
@@ -812,7 +814,7 @@ export const Account = ()  => {
   };
 
   const loadExpenseClaims = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     setExpenseClaimsLoading(true);
     setExpenseClaimsError('');
@@ -864,7 +866,7 @@ export const Account = ()  => {
   const formatClaimDate = (value) => formatDateDDMMYYYY(value, '-');
 
   const handleDownloadClaimExcel = async (claim) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Session expired. Please login again.');
       return;
@@ -932,7 +934,7 @@ export const Account = ()  => {
   };
 
   const actOnClaimLineItem = async (claimId, lineItemId, action, rejectionReason = '') => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Session expired. Please login again.');
       return;
@@ -1029,7 +1031,7 @@ export const Account = ()  => {
       return;
     }
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -1100,7 +1102,7 @@ export const Account = ()  => {
   };
 
   const handleViewBankDetails = async (emp) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       setAccountsProfileError('');
@@ -1167,7 +1169,7 @@ export const Account = ()  => {
   };
 
   const loadForm16History = async (adminId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token || !adminId) {
       setForm16History([]);
       setForm16HistoryError('');
@@ -1198,7 +1200,7 @@ export const Account = ()  => {
   };
 
   const loadCtcPolicy = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       const response = await fetch(`${API_BASE_URL}/ctc-policy`, {
@@ -1219,7 +1221,7 @@ export const Account = ()  => {
   };
 
   const refreshCtcRecalcCount = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       const response = await fetch(`${API_BASE_URL}/ctc-policy/recalc-candidates`, {
@@ -1228,15 +1230,17 @@ export const Account = ()  => {
       const result = await response.json();
       if (response.ok && result.success) {
         setCtcRecalcCount((result.candidates || []).length);
+        setCtcRecalcPrevCap(result.previous_pf_wage_cap_monthly ?? null);
       }
     } catch (error) {
       setCtcRecalcCount(0);
+      setCtcRecalcPrevCap(null);
     }
   };
 
   const handleSaveCtcPolicy = async () => {
     if (!ctcPolicyDraft) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -1268,7 +1272,7 @@ export const Account = ()  => {
 
   const handleAdvanceCtcRequest = async (action) => {
     if (!ctcPendingRequest?.id) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       const response = await fetch(`${API_BASE_URL}/ctc-approvals/${ctcPendingRequest.id}/decide`, {
@@ -1289,7 +1293,7 @@ export const Account = ()  => {
 
   const handleWithdrawCtcRequest = async () => {
     if (!ctcPendingRequest?.id) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       const response = await fetch(`${API_BASE_URL}/ctc-approvals/${ctcPendingRequest.id}/decide`, {
@@ -1311,7 +1315,7 @@ export const Account = ()  => {
     const latest = (ctcPolicy?.statutory?.packs || []).slice(-1)[0];
     const id = packId || latest?.id;
     if (!id) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       setCtcAdoptBusy(true);
@@ -1337,7 +1341,7 @@ export const Account = ()  => {
   };
 
   const loadCtcBreakup = async (adminId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token || !adminId) return;
     try {
       setCtcLoading(true);
@@ -1349,6 +1353,11 @@ export const Account = ()  => {
       const result = await response.json();
       if (!response.ok || !result.success) {
         throw new Error(result.message || 'Failed to load CTC breakup');
+      }
+      if (result.salary_visibility === 'masked') {
+        setCtcError('Salary amounts are masked for your role. Reveal with OTP to view or edit CTC.');
+        setCtcLoading(false);
+        return;
       }
       const c = result.ctc_breakup || {};
       const basic = Number(c.basic_salary || 0);
@@ -1483,7 +1492,7 @@ export const Account = ()  => {
   };
 
   const loadCtcHistory = async (adminId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token || !adminId) {
       setCtcHistory([]);
       setCtcHistoryError('');
@@ -1626,7 +1635,11 @@ export const Account = ()  => {
       annual_ctc_total: fixed,
       fixed_ctc_annual: fixed,
       variable_ctc_annual: variable,
-      total_ctc_annual: Math.round((fixed + variable) * 100) / 100,
+      total_ctc_annual: Number(
+        computed.total_ctc_annual != null && computed.total_ctc_annual !== ''
+          ? computed.total_ctc_annual
+          : Math.round((fixed + variable) * 100) / 100
+      ),
     });
     const basicToSync = derived.basic_salary != null ? derived.basic_salary : null;
     const daToSync = derived.dearness_allowance != null ? derived.dearness_allowance : null;
@@ -1656,7 +1669,7 @@ export const Account = ()  => {
   useEffect(() => {
     if (currentView !== 'ctcBreakup') return;
     if (!selectedEmployee?.adminId) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
 
     const annual = Number(ctcAnnual || 0);
@@ -1801,7 +1814,7 @@ export const Account = ()  => {
     if (currentView !== 'viewPayslip') return;
     if (!selectedEmployee?.adminId) return;
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
 
     let cancelled = false;
@@ -1905,7 +1918,7 @@ export const Account = ()  => {
   };
 
   const loadPayslipHistory = async (adminId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token || !adminId) {
       setPayslipHistory([]);
       setPayslipHistoryError('');
@@ -1962,7 +1975,7 @@ export const Account = ()  => {
       return;
     }
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -2019,7 +2032,7 @@ export const Account = ()  => {
       return;
     }
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -2067,7 +2080,7 @@ export const Account = ()  => {
   const handleDeletePayslip = async (payslipId) => {
     if (!window.confirm('Are you sure you want to delete this payslip?')) return;
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -2165,7 +2178,7 @@ export const Account = ()  => {
   };
 
   const downloadComplianceCsv = async (endpoint, filename, extraParams = {}) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setComplianceError('Please login again.');
       return;
@@ -2198,7 +2211,7 @@ export const Account = ()  => {
   };
 
   const loadPtSummary = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       setComplianceLoading(true);
@@ -2220,7 +2233,7 @@ export const Account = ()  => {
   };
 
   const loadPtCalendar = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       const params = new URLSearchParams({ year: bulkPayrollYear.trim() });
@@ -2237,7 +2250,7 @@ export const Account = ()  => {
   };
 
   const loadSalaryLoans = async (adminId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token || !adminId) return;
     try {
       const res = await fetch(`${API_BASE_URL}/payroll/loans?admin_id=${adminId}`, {
@@ -2253,7 +2266,7 @@ export const Account = ()  => {
   };
 
   const loadFnfSettlements = async (adminId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token || !adminId) return;
     try {
       const res = await fetch(`${API_BASE_URL}/payroll/fnf-settlements?admin_id=${adminId}`, {
@@ -2271,7 +2284,7 @@ export const Account = ()  => {
   };
 
   const loadPendingSalaryRevisions = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       const res = await fetch(`${API_BASE_URL}/pending-salary-revisions?status=pending`, {
@@ -2289,7 +2302,7 @@ export const Account = ()  => {
   };
 
   const completeSalaryRevision = async (reqId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       await fetch(`${API_BASE_URL}/pending-salary-revisions/${reqId}`, {
@@ -2321,7 +2334,7 @@ export const Account = ()  => {
   const handlePreviewEncashment = async () => {
     const adminId = Number(lifecycleEmployeeId);
     if (!adminId) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     try {
       setComplianceLoading(true);
       const res = await fetch(`${API_BASE_URL}/payroll/leave-encashment-preview`, {
@@ -2342,7 +2355,7 @@ export const Account = ()  => {
   const handlePreviewFnf = async () => {
     const adminId = Number(lifecycleEmployeeId);
     if (!adminId) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     try {
       setComplianceLoading(true);
       const res = await fetch(`${API_BASE_URL}/payroll/fnf-preview`, {
@@ -2369,7 +2382,7 @@ export const Account = ()  => {
   const handleSaveFnf = async () => {
     const adminId = Number(lifecycleEmployeeId);
     if (!adminId || !fnfPreview?.settlement) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     try {
       setComplianceLoading(true);
       const res = await fetch(`${API_BASE_URL}/payroll/fnf-settlements`, {
@@ -2394,7 +2407,7 @@ export const Account = ()  => {
   };
 
   const handleUpdateFnfStatus = async (settlementId, status) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!settlementId || !token) return;
     try {
       setFnfStatusUpdatingId(settlementId);
@@ -2418,7 +2431,7 @@ export const Account = ()  => {
   };
 
   const handleDownloadFnfPdf = async (settlementId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!settlementId || !token) return;
     try {
       const res = await fetch(`${API_BASE_URL}/payroll/fnf-settlements/${settlementId}/pdf`, {
@@ -2442,7 +2455,7 @@ export const Account = ()  => {
   const handleCreateLoan = async () => {
     const adminId = Number(lifecycleEmployeeId);
     if (!adminId) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     try {
       setComplianceLoading(true);
       const res = await fetch(`${API_BASE_URL}/payroll/loans`, {
@@ -2482,7 +2495,7 @@ export const Account = ()  => {
       return;
     }
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setBulkPayrollError('Please login again.');
       return;
@@ -2589,7 +2602,7 @@ export const Account = ()  => {
 
   const handlePayrollStatusUpdate = async (status) => {
     if (!payrollRows.length) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setBulkPayrollError('Please login again.');
       return;
@@ -2624,7 +2637,7 @@ export const Account = ()  => {
 
   const handleStatutoryBonusRun = async (payoutMode = 'monthly') => {
     if (!payrollRows.length) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setBulkPayrollError('Please login again.');
       return;
@@ -2661,7 +2674,7 @@ export const Account = ()  => {
     setBulkPayrollError('');
     setBulkPayrollResult(null);
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setBulkPayrollError('Please login again.');
       notifyApiFailure('Please login again.');
@@ -2780,7 +2793,7 @@ export const Account = ()  => {
       setBulkPayrollError('Open payroll for this circle and department first.');
       return;
     }
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setBulkPayrollError('Please login again.');
       return;
@@ -2817,7 +2830,7 @@ export const Account = ()  => {
   };
 
   const loadPayrollApprovals = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       const res = await fetch(
@@ -2834,7 +2847,7 @@ export const Account = ()  => {
   };
 
   const handleViewPayrollApproval = async (batchId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     const res = await fetch(`${API_BASE_URL}/payroll-batches/${batchId}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -2851,7 +2864,7 @@ export const Account = ()  => {
     if (!window.confirm('Confirm salary has been credited for this circle and department. Payslips will be generated only after this confirmation.')) {
       return;
     }
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       setIsPayrollBatchBusy(true);
@@ -2880,7 +2893,7 @@ export const Account = ()  => {
   };
 
   const loadPayrollHistory = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setPayrollHistoryError('Please login again.');
       return;
@@ -2950,7 +2963,7 @@ export const Account = ()  => {
       return;
     }
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -3003,7 +3016,7 @@ export const Account = ()  => {
       alert('Please choose a TRACES CSV file.');
       return;
     }
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -3040,7 +3053,7 @@ export const Account = ()  => {
       alert('Enter a valid financial year (e.g. 2025-26).');
       return;
     }
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -3087,7 +3100,7 @@ export const Account = ()  => {
       return;
     }
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -3146,7 +3159,7 @@ export const Account = ()  => {
       alert('Reason is required for HR regime override.');
       return;
     }
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     setRegimeOverrideSaving(true);
     try {
@@ -3182,7 +3195,7 @@ export const Account = ()  => {
 
   const handleClearRegimeOverride = async () => {
     if (!selectedEmployee?.adminId) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     setRegimeOverrideSaving(true);
     try {
@@ -3206,7 +3219,7 @@ export const Account = ()  => {
       alert('Employee not selected.');
       return;
     }
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -3244,7 +3257,7 @@ export const Account = ()  => {
       alert('Employee not selected.');
       return;
     }
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please login again.');
       return;
@@ -3332,7 +3345,7 @@ export const Account = ()  => {
 
   const handlePreviewArrears = async () => {
     if (!selectedEmployee?.adminId) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       setCtcError('');
@@ -3363,7 +3376,7 @@ export const Account = ()  => {
 
   const handleApplyArrears = async () => {
     if (!selectedEmployee?.adminId || !ctcArrearsPreview?.months?.length) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     try {
       setCtcArrearsApplying(true);
@@ -4096,7 +4109,7 @@ export const Account = ()  => {
   );
 
   const fetchTdsProjection = async (adminId, formOverrides = {}, modeOverride) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token || !adminId) return;
     const form = { ...tdsForm, ...formOverrides };
     const mode = modeOverride || tdsProjectionMode;
@@ -4755,7 +4768,11 @@ export const Account = ()  => {
                   </button>
                 </div>
                 <div className="ctc-field-hint">
-                  {ctcRecalcCount} staff have PF wage above ₹15,000 and will be queued if you adopt with recalc.
+                  {ctcRecalcCount} staff have PF wage above the previous statutory ceiling
+                  {ctcRecalcPrevCap != null
+                    ? ` (₹${Number(ctcRecalcPrevCap).toLocaleString('en-IN')})`
+                    : ''}
+                  {' '}and will be queued if you adopt with recalc.
                   Finance must approve the pack before live CTC is rewritten.
                 </div>
               </div>
@@ -7388,7 +7405,7 @@ export const Account = ()  => {
                     className="btn-primary"
                     disabled={accountsProfileSaving || !selectedEmployee?.adminId}
                     onClick={async () => {
-                      const token = localStorage.getItem('token');
+                      const token = getAccessToken();
                       if (!token || !selectedEmployee?.adminId) return;
                       try {
                         setAccountsProfileSaving(true);

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './AdminCrm.css';
+import { getAccessToken, hasSignedInHint } from "../../utils/authSession";
 
 const API = '/api/admin/crm';
 
@@ -88,14 +89,16 @@ export default function AdminCrm() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
 
-  const headers = () => ({
-    Authorization: `Bearer ${localStorage.getItem('token')}`,
-    'Content-Type': 'application/json',
-  });
+  const headers = () => {
+    const token = getAccessToken();
+    const h = { 'Content-Type': 'application/json' };
+    if (token) h.Authorization = `Bearer ${token}`;
+    return h;
+  };
 
   const load = useCallback(async () => {
-    const token = localStorage.getItem('token');
-    if (!token) {
+    const token = getAccessToken();
+    if (!token && !hasSignedInHint()) {
       setLoading(false);
       setError('Sign in again to open CRM.');
       return;
@@ -103,7 +106,8 @@ export default function AdminCrm() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API}/dashboard`, { headers: { Authorization: `Bearer ${token}` } });
+      const auth = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch(`${API}/dashboard`, { headers: auth, credentials: "include" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.message || 'Could not load CRM');
       setBoard(data);

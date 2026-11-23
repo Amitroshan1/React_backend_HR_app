@@ -4,11 +4,12 @@ import { useRefreshOnNavigate } from '../../../hooks/useRefreshOnNavigate';
 import { INV_CATEGORIES } from '../inventoryCategories';
 import { isUploadAbort, useInventoryUpload } from './InventoryUploadLock';
 import './InventoryPurchase.css';
+import { getAccessToken } from "../../../utils/authSession";
 
 const API = '/api/it/inventory/purchase';
 
 function authHeaders() {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

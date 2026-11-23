@@ -6,6 +6,7 @@ import { formatDate } from '../../utils/dateFormat';
 import { useUser } from '../../components/layout/UserContext';
 import { errorFromApiResponse, getApiErrorMessage } from '../../utils/apiError';
 import { notifyApiFailure } from '../../utils/notify';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE_URL = "/api/leave";
 
@@ -113,6 +114,19 @@ export const Claims = () => {
     }
   }, [loadingUser, applyEmployeeDefaults]);
 
+  const clearNewClaimReceipt = () => {
+    setClaimForm((prev) => ({ ...prev, attachFile: null }));
+    if (fileInputRefs.current.newClaim) {
+      fileInputRefs.current.newClaim.value = '';
+    }
+  };
+
+  const handleClearLineReceipt = (id) => {
+    setClaims((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, attachFile: null } : c))
+    );
+  };
+
   const handleFileChange = (e, index) => {
     const file = e.target.files[0];
     if (index !== undefined) {
@@ -129,7 +143,7 @@ export const Claims = () => {
   const fetchClaims = async () => {
     setLoading(true);
     setError(null);
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setLoading(false);
       return;
@@ -202,6 +216,12 @@ export const Claims = () => {
       return;
     }
 
+    const amountValue = parseFloat(claimForm.amount);
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+      alert('Amount must be greater than 0. Negative or zero amounts are not allowed.');
+      return;
+    }
+
     if (
       !isDateInTravelRange(
         claimForm.expenseDate,
@@ -221,7 +241,7 @@ export const Claims = () => {
       country: claimForm.country || 'N/A',
       date: claimForm.expenseDate,
       purpose: claimForm.purpose,
-      amount: parseFloat(claimForm.amount),
+      amount: amountValue,
       currency: claimForm.currency,
       attachFile: claimForm.attachFile,
       status: 'pending'
@@ -255,9 +275,23 @@ export const Claims = () => {
       return;
     }
 
-    if (!claimForm.employeeName || !claimForm.designation || !claimForm.employeeId || 
-        !claimForm.email || !claimForm.projectName || !claimForm.travelFrom || !claimForm.travelTo) {
-      alert('Please fill in all employee and travel details');
+    if (claims.some((c) => !Number.isFinite(Number(c.amount)) || Number(c.amount) <= 0)) {
+      alert("Every expense amount must be greater than 0. Remove any zero or negative lines.");
+      return;
+    }
+
+    const filled = (v) => String(v || '').trim().length > 0;
+    if (
+      !filled(claimForm.employeeName)
+      || !filled(claimForm.designation)
+      || !filled(claimForm.employeeId)
+      || !filled(claimForm.email)
+      || !filled(claimForm.projectName)
+      || !filled(claimForm.country)
+      || !filled(claimForm.travelFrom)
+      || !filled(claimForm.travelTo)
+    ) {
+      alert('Please fill in all employee and travel details.');
       return;
     }
 
@@ -278,7 +312,7 @@ export const Claims = () => {
     setError(null);
     setSuccessMessage(null);
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert("Please login again");
       setSubmitting(false);
@@ -294,8 +328,8 @@ export const Claims = () => {
       formData.append('designation', claimForm.designation);
       formData.append('emp_id', claimForm.employeeId);
       formData.append('email', claimForm.email);
-      formData.append('project_name', claimForm.projectName);
-      formData.append('country_state', claimForm.country || 'N/A');
+      formData.append('project_name', claimForm.projectName.trim());
+      formData.append('country_state', claimForm.country.trim());
       formData.append('travel_from_date', claimForm.travelFrom);
       formData.append('travel_to_date', claimForm.travelTo);
 
@@ -409,12 +443,12 @@ export const Claims = () => {
 
           <div className="claims-form-grid">
             <div className="claims-form-group">
-              <label className="claims-label" htmlFor="projectName">Project Name</label>
-              <input className="claims-input" type="text" id="projectName" value={claimForm.projectName} onChange={handleInputChange} placeholder="Enter project" />
+              <label className="claims-label" htmlFor="projectName">Project Name <span className="claims-required">*</span></label>
+              <input className="claims-input" type="text" id="projectName" value={claimForm.projectName} onChange={handleInputChange} placeholder="Enter project" required />
             </div>
             <div className="claims-form-group">
-              <label className="claims-label" htmlFor="country">Country/State</label>
-              <input className="claims-input" type="text" id="country" value={claimForm.country} onChange={handleInputChange} placeholder="Enter location" />
+              <label className="claims-label" htmlFor="country">Country/State <span className="claims-required">*</span></label>
+              <input className="claims-input" type="text" id="country" value={claimForm.country} onChange={handleInputChange} placeholder="Enter location" required />
             </div>
             <div className="claims-form-group">
               <label className="claims-label" htmlFor="travelFrom">Travel From</label>
@@ -480,7 +514,7 @@ export const Claims = () => {
             </div>
             <div className="claims-form-group claims-col-amount">
               <label className="claims-label">Amount</label>
-              <input className="claims-input" type="number" id="amount" value={claimForm.amount} onChange={handleInputChange} placeholder="0.00" />
+              <input className="claims-input" type="number" id="amount" min="0.01" step="0.01" value={claimForm.amount} onChange={handleInputChange} placeholder="0.00" />
             </div>
             <div className="claims-form-group claims-col-currency">
               <label className="claims-label">Currency</label>
@@ -496,17 +530,28 @@ export const Claims = () => {
           <div className="claims-action-footer">
             <div className="claims-form-group">
               <label className="claims-label" htmlFor="attachFile">Attach Supporting Receipt</label>
-              <div className="claims-file-wrap">
-                <input
-                  type="file"
-                  id="attachFile"
-                  onChange={handleFileChange}
-                  ref={el => fileInputRefs.current.newClaim = el}
-                  className="claims-file-input"
-                />
-                <span className="claims-file-label">
-                  {claimForm.attachFile ? claimForm.attachFile.name : 'Choose file...'}
-                </span>
+              <div className="claims-file-row">
+                <div className="claims-file-wrap">
+                  <input
+                    type="file"
+                    id="attachFile"
+                    onChange={handleFileChange}
+                    ref={el => fileInputRefs.current.newClaim = el}
+                    className="claims-file-input"
+                  />
+                  <span className="claims-file-label">
+                    {claimForm.attachFile ? claimForm.attachFile.name : 'Choose file...'}
+                  </span>
+                </div>
+                {claimForm.attachFile ? (
+                  <button
+                    type="button"
+                    className="claims-btn-clear-file"
+                    onClick={clearNewClaimReceipt}
+                  >
+                    Remove file
+                  </button>
+                ) : null}
               </div>
             </div>
             <button type="button" className="claims-btn-add" onClick={handleAddToClaim}>
@@ -545,7 +590,22 @@ export const Claims = () => {
                     <td data-label="Purpose">{claim.purpose}</td>
                     <td data-label="Amount"><strong>{claim.amount}</strong></td>
                     <td data-label="Currency">{claim.currency}</td>
-                    <td data-label="File">{claim.attachFile ? claim.attachFile.name : '-'}</td>
+                    <td data-label="File">
+                      {claim.attachFile ? (
+                        <span className="claims-file-cell">
+                          {claim.attachFile.name}
+                          <button
+                            type="button"
+                            className="claims-btn-clear-file"
+                            onClick={() => handleClearLineReceipt(claim.id)}
+                          >
+                            Remove
+                          </button>
+                        </span>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
                     <td className="claims-action-cell" data-label="Action">
                       <button type="button" className="claims-btn-remove" onClick={() => handleRemoveClaim(claim.id)}>
                         <Trash2 size={14} />

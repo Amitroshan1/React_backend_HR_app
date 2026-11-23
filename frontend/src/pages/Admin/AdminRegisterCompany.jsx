@@ -5,6 +5,7 @@ import './AdminCustomers.css';
 import CountryField from './CountryField';
 import { canManageCustomerRegistry } from './customerRegistryAccess';
 import { emptyMailboxes, mailboxFieldsForPlan } from './mailboxPlan';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_CUSTOMERS = '/api/admin/customers';
 
@@ -32,6 +33,8 @@ const emptyForm = () => ({
   admin_email: '',
   admin_name: '',
   admin_mobile: '',
+  send_kyb_invite: true,
+  kyb_email: '',
 });
 
 function slugifyLocal(name) {
@@ -55,7 +58,7 @@ export default function AdminRegisterCompany() {
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
 
-  const token = () => localStorage.getItem('token');
+  const token = () => getAccessToken();
   const headers = () => ({
     Authorization: `Bearer ${token()}`,
     'Content-Type': 'application/json',
@@ -120,7 +123,10 @@ export default function AdminRegisterCompany() {
         company_name: form.company_name.trim(),
         slug: form.slug.trim() || undefined,
         plan: form.plan,
-        status: form.status || 'active',
+        status: form.send_kyb_invite ? 'provisioning' : (form.status || 'active'),
+        send_kyb_invite: Boolean(form.send_kyb_invite),
+        skip_kyb: !form.send_kyb_invite,
+        kyb_email: form.kyb_email.trim() || form.contact_email.trim() || form.admin_email.trim() || undefined,
         contact_email: form.contact_email.trim() || undefined,
         country: form.country.trim(),
         go_live_date: form.go_live_date || undefined,
@@ -146,10 +152,13 @@ export default function AdminRegisterCompany() {
       }
       const tid = data.tenant?.id;
       const firstAdmin = data.tenant_admin;
+      const kyb = data.kyb;
       const message =
         `Registered ${data.customer?.company_name || 'company'} (${data.customer?.plan_label})` +
         (tid ? ` — tenant #${tid}` : '') +
-        (firstAdmin ? ` — admin ${firstAdmin.email} (${firstAdmin.emp_id}) can log in with OTP` : '');
+        (firstAdmin && !form.send_kyb_invite ? ` — admin ${firstAdmin.email} (${firstAdmin.emp_id}) can log in with OTP` : '') +
+        (kyb?.email_sent ? ` — verification link emailed to ${kyb.email}` : '') +
+        (kyb && !kyb.email_sent && kyb.invite_url ? ` — copy onboarding link from Admin (email not sent)` : '');
       navigate('/admin/customers', { state: { message } });
     } catch (err) {
       setError(err.message || 'Failed to register company');
@@ -257,6 +266,41 @@ export default function AdminRegisterCompany() {
                   onChange={(country) => setForm((current) => ({ ...current, country }))}
                 />
               </div>
+            </section>
+
+            <section className="cust-form-section">
+              <h3 className="cust-form-section__title">Company verification (KYB)</h3>
+              <p className="cust-form-section__hint">
+                Customer gets a private link to confirm company name, contact, country, legal details, and
+                upload incorporation / GST / PAN proofs. Plan and slug stay as you set them. The company
+                stays in provisioning until you approve after they submit.
+              </p>
+              <label className="cust-field cust-field--full">
+                <input
+                  type="checkbox"
+                  checked={form.send_kyb_invite}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, send_kyb_invite: event.target.checked }))
+                  }
+                />
+                {' '}Send onboarding / document link
+              </label>
+              {form.send_kyb_invite ? (
+                <label className="cust-field cust-field--full">
+                  Link recipient email
+                  <input
+                    type="email"
+                    value={form.kyb_email}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, kyb_email: event.target.value }))
+                    }
+                    placeholder={form.contact_email || form.admin_email || 'ops@acme.com'}
+                  />
+                  <span className="cust-field__hint">Defaults to contact or first admin email</span>
+                </label>
+              ) : (
+                <p className="cust-field__hint">Skip only for internal/demo companies you already know.</p>
+              )}
             </section>
 
             <section className="cust-form-section cust-form-section--accent">

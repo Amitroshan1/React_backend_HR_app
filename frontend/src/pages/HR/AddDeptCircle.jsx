@@ -3,6 +3,7 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { ArrowLeft } from 'lucide-react';
 import { scrollAppToTop } from '../../utils/scrollToTop';
 import '../Admin/AdminList.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = '/api/HumanResource/master';
 
@@ -34,7 +35,7 @@ const AddDeptCircle = ({ onBack, backLabel = 'Back to Updates' }) => {
   }, []);
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

@@ -5,6 +5,7 @@ import './AddNewsFeed.css';
 import { formatDate } from '../../utils/dateFormat';
 import { fetchAndOpenAuthenticatedFile } from '../../utils/openBlobFile';
 import { toAuthContentUrl, isAlreadySignedFileUrl, toPathOnly } from '../../utils/secureFileUrl';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = '/api/HumanResource';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -62,7 +63,7 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
   useEffect(() => {
     if (propCircleOptions?.length) setCircleOptions(['All', ...propCircleOptions]);
     else if (!propCircleOptions) {
-      const token = localStorage.getItem('token');
+      const token = getAccessToken();
       if (token) {
         fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
           .then((res) => res.json().catch(() => ({})))
@@ -73,7 +74,7 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
   useEffect(() => {
     if (propEmpTypeOptions?.length) setEmpTypeOptions(['All', 'All Employees', ...propEmpTypeOptions]);
     else if (!propEmpTypeOptions) {
-      const token = localStorage.getItem('token');
+      const token = getAccessToken();
       if (token) {
         fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
           .then((res) => res.json().catch(() => ({})))
@@ -83,7 +84,7 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
   }, [propEmpTypeOptions]);
 
   const fetchHistory = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
 
     setHistoryLoading(true);
@@ -112,7 +113,7 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
   });
 
   const handleDeletePost = async (id) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       alert('Please log in.');
       return;
@@ -144,7 +145,7 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
       setError('Title and content are required.');
       return;
     }
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setError('Please log in to post.');
       return;

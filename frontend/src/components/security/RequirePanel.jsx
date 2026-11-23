@@ -8,10 +8,12 @@ import {
   canViewOwnAssignedAssets,
   hasFeature,
   isAdminUser,
+  isCompanyAdmin,
+  isPlatformSuperAdmin,
 } from "../../utils/planFeatures";
 
 function canAccessManagerPanel(user) {
-  if (isAdminUser(user)) return true;
+  if (isCompanyAdmin(user) || isPlatformSuperAdmin(user)) return true;
   if (user?.has_manager_access === true) return true;
   const et = String(user?.emp_type || user?.department || "")
     .trim()

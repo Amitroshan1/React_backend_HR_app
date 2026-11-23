@@ -5,6 +5,7 @@ import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './OffboardingDashboard.css';
 import './HrUpdatesShared.css';
 import './HRATS.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -26,7 +27,7 @@ export const HRATS = ({ onBack, onConvertToSignup, circleOptions = [], empTypeOp
   const [hireProgress, setHireProgress] = useState(null);
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

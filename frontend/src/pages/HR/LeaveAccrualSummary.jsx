@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { ArrowLeft, RefreshCw, CalendarClock } from 'lucide-react';
 import './LeaveAccrualSummary.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = '/api/HumanResource';
 
@@ -21,7 +22,7 @@ export const LeaveAccrualSummary = ({ onBack }) => {
   });
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

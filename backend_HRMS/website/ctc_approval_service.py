@@ -206,13 +206,31 @@ def submit_statutory_adopt(*, actor, pack_id, include_recalc, note=None):
     return row, status == "approved"
 
 
-def recalc_candidates() -> list[dict]:
-    """Employees whose PF wage sits above the pre-2026 ceiling (needs 25k pack review)."""
-    from .commands.ctc_breakup_logic import pf_wage_monthly
-    from .commands.statutory_pack import pack_for_date
+def recalc_queue_caps(as_of=None) -> dict:
+    """Previous vs current PF wage caps for pack-adopt recalc queues."""
+    from .commands.statutory_pack import pack_for_date, previous_pack
 
-    current = pack_for_date()
-    cap = float(current.get("pf_wage_cap_monthly") or 25000)
+    current = pack_for_date(as_of)
+    prev = previous_pack(as_of)
+    current_cap = float(current.get("pf_wage_cap_monthly") or 0)
+    previous_cap = float((prev or {}).get("pf_wage_cap_monthly") or 0)
+    review_floor = previous_cap if prev else current_cap
+    return {
+        "current_pack": current,
+        "previous_pack": prev,
+        "current_pf_wage_cap_monthly": current_cap,
+        "previous_pf_wage_cap_monthly": previous_cap or None,
+        "review_floor": review_floor,
+    }
+
+
+def recalc_candidates() -> list[dict]:
+    """Employees whose PF wage sits above the previous pack ceiling (PF will change on adopt)."""
+    from .commands.ctc_breakup_logic import pf_wage_monthly
+
+    caps = recalc_queue_caps()
+    review_floor = float(caps["review_floor"] or 0)
+    cap = float(caps["current_pf_wage_cap_monthly"] or 0)
     ids = list(tenant_admin_ids() or [])
     if not ids:
         return []
@@ -220,7 +238,7 @@ def recalc_candidates() -> list[dict]:
     out = []
     for row in rows:
         wage = pf_wage_monthly(row.basic_salary, row.dearness_allowance)
-        if wage <= 15000:
+        if wage <= review_floor:
             continue
         out.append({
             "admin_id": row.admin_id,
@@ -228,8 +246,10 @@ def recalc_candidates() -> list[dict]:
             "emp_id": getattr(row.admin, "emp_id", None) if row.admin else None,
             "pf_wage": round(wage, 2),
             "annual_ctc": row.annual_ctc_computed or row.annual_ctc,
-            "needs_cap": wage > 15000,
+            "needs_cap": wage > review_floor,
             "over_new_cap": wage > cap,
+            "previous_pf_wage_cap_monthly": caps["previous_pf_wage_cap_monthly"],
+            "current_pf_wage_cap_monthly": cap,
         })
     return out
 

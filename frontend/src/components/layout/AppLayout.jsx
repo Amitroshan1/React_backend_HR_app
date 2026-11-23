@@ -27,6 +27,7 @@ import { AppFooter } from "./AppFooter";
 import { useFloatingNotifications } from "../../hooks/useFloatingNotifications";
 // import "../../pages/style/Dashboard.css"
 import "../../pages/Dashboard/Dashboard.css"
+import { getAccessToken, hasSignedInHint } from "../../utils/authSession";
 import { withFileCacheBust } from "../../utils/secureFileUrl";
 import { normalizePhotoUrl } from "../../utils/userPhoto";
 import { TransitionRemarkProvider } from "../../pages/IT/itam/TransitionRemarkModal";
@@ -35,9 +36,9 @@ import { syncItamFlagsFromApi } from "../../utils/itamFlags";
 export const AppLayout = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { userData, loadingUser, photoVersion, refreshUserData } = useUser();
+    const { userData, loadingUser, photoVersion, refreshUserData, profileStatus } = useUser();
     const prevPathRef = useRef(null);
-    const hasToken = typeof window !== "undefined" && !!localStorage.getItem("token");
+    const hasToken = typeof window !== "undefined" && hasSignedInHint();
 
     useFloatingNotifications(hasToken && !loadingUser);
 
@@ -45,7 +46,7 @@ export const AppLayout = () => {
         if (!hasToken || loadingUser) return;
         const user = userData?.user;
         if (!canAccessItPanel(user)) return;
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         syncItamFlagsFromApi(token ? { Authorization: `Bearer ${token}` } : {});
     }, [hasToken, loadingUser, userData?.user]);
 
@@ -150,18 +151,21 @@ export const AppLayout = () => {
         }
     }, [location.pathname, navigate, userData?.user, loadingUser]);
 
-    /* No token: redirect to login immediately (direct URL, Back after logout) – no dashboard or loading state */
+    /* No token: send back to login. Do not bounce on the first paint of a just-issued session. */
     useEffect(() => {
-        if (!hasToken) {
-            navigate("/", { replace: true });
-        }
+        if (hasSignedInHint()) return undefined;
+        const t = window.setTimeout(() => {
+            if (!hasSignedInHint()) {
+                navigate("/", { replace: true });
+            }
+        }, 2000);
+        return () => window.clearTimeout(t);
     }, [hasToken, navigate]);
 
     /* After login: if user presses Back and lands on login, performance, holiday, etc., send them to dashboard */
     useEffect(() => {
         const handlePopState = () => {
-            const token = localStorage.getItem("token");
-            if (!token) return;
+            if (!hasSignedInHint()) return;
             const path = window.location.pathname || "";
             const disallowedBackTargets = ["/", "", "/select_role", "/performance", "/holiday-calendar"];
             if (disallowedBackTargets.includes(path)) {
@@ -174,7 +178,7 @@ export const AppLayout = () => {
 
     useEffect(() => {
         const resolveEmpType = () => {
-            const token = localStorage.getItem("token");
+            const token = getAccessToken();
             return (
                 userData?.user?.emp_type
                 || userData?.user?.department
@@ -183,8 +187,7 @@ export const AppLayout = () => {
         };
 
         const checkInactivity = () => {
-            const token = localStorage.getItem("token");
-            if (!token) return;
+            if (!hasSignedInHint()) return;
             ensureActivityStamp();
             if (sessionShouldEnd(resolveEmpType())) {
                 endSession("1");
@@ -194,7 +197,6 @@ export const AppLayout = () => {
         };
 
         ensureActivityStamp();
-        checkInactivity();
 
         const activityEvents = ["click", "keydown", "mousemove", "scroll", "touchstart"];
         activityEvents.forEach((eventName) => {
@@ -213,10 +215,14 @@ export const AppLayout = () => {
 
     // Safely get the username and emp_type from admins table data
     // Backend returns: user.name (display name: first_name / user_name / email prefix) and user.emp_type
-    const username = userData.user?.name || userData.user?.first_name || userData.user?.user_name
-        || (userData.user?.email ? userData.user.email.split("@")[0] : null) || "User";
-    // Get emp_type from admins table (from backend /employee/homepage response)
-    const empType = userData.user?.emp_type || userData.user?.department || "Employee";
+    const profileUnavailable = profileStatus?.kind === "load_failed";
+    const username = profileUnavailable
+        ? ""
+        : (userData.user?.name || userData.user?.first_name || userData.user?.user_name
+            || (userData.user?.email ? userData.user.email.split("@")[0] : null) || "");
+    const empType = profileUnavailable
+        ? "Signed in"
+        : (userData.user?.emp_type || userData.user?.department || "Employee");
     
     // Cache-bust profile picture when photo_url or photoVersion changes (do not break signed ?exp=&sig=)
     const profilePicWithCache = useMemo(() => {
@@ -273,7 +279,7 @@ export const AppLayout = () => {
     return (
         <div className="main-layout app-layout">
             {/* The Header now gets the username and full user object from the centralized context */}
-            <Headers username={username} role={empType} user={headerUser} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
+            <Headers username={username} role={empType} user={headerUser} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} profileUnavailable={profileUnavailable} /> 
             
             <div className={`content-area${isInventoryPage ? " content-area--inventory" : ""}${isAdminShell ? " content-area--admin-shell" : ""}`}>
                 <AdminReturnBar visible={showAdminReturnBar} />

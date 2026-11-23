@@ -71,7 +71,7 @@ def test_finalize_is_separation_only_no_noc(app):
         res = client.post(
             "/api/leave/seperation/finalize",
             json={
-                "resignation_date": (date.today() + timedelta(days=30)).isoformat(),
+                "resignation_date": date.today().isoformat(),
                 "reason": "Moving to another opportunity for growth.",
                 "departments": ["HR"],
             },
@@ -100,7 +100,7 @@ def test_separation_post_also_separation_only(app):
         res = client.post(
             "/api/leave/seperation",
             json={
-                "resignation_date": (date.today() + timedelta(days=30)).isoformat(),
+                "resignation_date": date.today().isoformat(),
                 "reason": "Personal reasons for leaving the role.",
             },
             headers=_headers(app),
@@ -112,3 +112,23 @@ def test_separation_post_also_separation_only(app):
     noc_mail.assert_not_called()
     with app.app_context():
         assert NocDepartmentRequest.query.count() == 0
+        row = Resignation.query.filter_by(admin_id=1).first()
+        assert row.resignation_date == date.today()
+
+
+def test_separation_rejects_future_apply_date(app):
+    client = app.test_client()
+    res = client.post(
+        "/api/leave/seperation",
+        json={
+            "resignation_date": (date.today() + timedelta(days=7)).isoformat(),
+            "reason": "Personal reasons for leaving the role.",
+        },
+        headers=_headers(app),
+    )
+    body = res.get_json() or {}
+    assert res.status_code == 400, body
+    assert body.get("success") is False
+    assert "today" in (body.get("message") or "").lower()
+    with app.app_context():
+        assert Resignation.query.count() == 0

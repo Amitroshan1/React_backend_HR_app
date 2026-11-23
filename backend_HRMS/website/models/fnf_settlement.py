@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .. import db
 from ..datetime_utils import isoformat_api, utc_now
+from ..money import Money
 
 
 class FnfSettlement(db.Model):
@@ -18,7 +19,9 @@ class FnfSettlement(db.Model):
     separation_date = db.Column(db.Date, nullable=False)
     last_working_day = db.Column(db.Date, nullable=False)
     snapshot = db.Column(db.JSON, nullable=False)
-    net_payable = db.Column(db.Float, nullable=False, default=0.0)
+    net_payable = db.Column(Money(), nullable=True, default=0)
+    amount_blob = db.Column(db.LargeBinary, nullable=True)
+    json_blob = db.Column(db.LargeBinary, nullable=True)
     status = db.Column(db.String(20), nullable=False, default="draft")
     note = db.Column(db.Text, nullable=True)
     created_by_admin_id = db.Column(db.Integer, nullable=True)

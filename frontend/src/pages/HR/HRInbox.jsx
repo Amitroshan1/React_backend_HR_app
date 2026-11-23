@@ -3,6 +3,7 @@ import { ArrowLeft, Inbox, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-r
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './HRInbox.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -32,7 +33,7 @@ export const HRInbox = ({ onBack, onNavigate }) => {
   const [filter, setFilter] = useState('all');
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

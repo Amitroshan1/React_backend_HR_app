@@ -95,6 +95,8 @@ export const EmploymentBankSection = ({
                     onChange={onPrevEmpChange}
                     onRemove={onRemovePrevEmp}
                     errors={errors}
+                    dateOfBirth={data?.dateOfBirth}
+                    dateOfJoining={data?.dateOfJoining}
                 />
             ))}
 

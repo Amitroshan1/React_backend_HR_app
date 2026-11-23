@@ -19,7 +19,7 @@ from ..models.daily_checkout import DailyCheckoutDocument, DailyCheckoutRequest
 from ..pdf_watermark import install_page_watermark
 from .service import DOC_ACCEPTANCE, DOC_RETURN, _add_event, _uploads_root, current_signature
 
-COMPANY_NAME = "Saffo Solution Technology LLP"
+COMPANY_NAME = "Saffo Solution Technology"
 COMPANY_ADDRESS_LINES = (
     "405, A Wing, 4th Floor",
     "Technocity TTC Indl Area, Mhape",

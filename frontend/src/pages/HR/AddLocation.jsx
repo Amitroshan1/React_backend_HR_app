@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { ArrowLeft, MapPin } from 'lucide-react';
 import './AddLocation.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -34,7 +35,7 @@ export const AddLocation = ({ onBack }) => {
   const [success, setSuccess] = useState('');
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

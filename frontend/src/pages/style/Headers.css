@@ -40,6 +40,8 @@
     align-items: center;
     width: 100%;
     height: 100%; /* Take full height of container */
+    min-width: 0;
+    gap: 16px;
 }
 
 /* Left Section */
@@ -47,6 +49,9 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .home-logo-btn {
@@ -76,16 +81,38 @@
     font-weight: 400;
     color: var(--text-dark);
     margin: 0;
+    min-width: 0;
+    max-width: 100%;
 }
 
-/* Dashboard welcome only: big and bold */
+/* Dashboard welcome only: big and bold, name truncates so header stays aligned */
 .header-left .welcome-title:not(.page-heading) {
     background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     font-weight: 800;
-    font-size: 1.75rem;
+    font-size: clamp(1.15rem, 2.2vw, 1.75rem);
+    line-height: 1.2;
+}
+
+.welcome-title--dash {
+    display: flex;
+    align-items: baseline;
+    gap: 0.28em;
+    width: 100%;
+}
+
+.welcome-title__prefix,
+.welcome-title__bang {
+    flex: 0 0 auto;
+}
+
+.welcome-title__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Other page titles (except dashboard): responsive, not bold – specific so it overrides other .page-heading (e.g. AddDeptCircle.css) */
@@ -93,6 +120,9 @@
     color: var(--primary-blue);
     font-weight: 800;
     font-size: clamp(0.875rem, 2vw + 0.75rem, 1.25rem);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .overview-text {
@@ -106,6 +136,25 @@
     display: flex;
     align-items: center;
     gap: 20px;
+    flex: 0 0 auto;
+}
+
+.header-logout-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #fecaca;
+    background: #fef2f2;
+    color: var(--danger);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.header-logout-btn:hover {
+    background: #fee2e2;
 }
 
 .notice-chip {
@@ -309,6 +358,8 @@
 .user-info {
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    max-width: 132px;
 }
 
 .user-name {
@@ -316,6 +367,9 @@
     font-weight: 600;
     color: var(--text-dark);
     margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .user-role {
@@ -323,6 +377,9 @@
     color: var(--text-gray);
     margin: 0;
     text-transform: capitalize;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Dropdown Card */
@@ -354,6 +411,8 @@
     font-size: 0.95rem;
     color: var(--text-dark);
     margin: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .d-role-label {
@@ -517,14 +576,9 @@
         max-width: min(200px, 42vw);
     }
 
-    /* Dashboard welcome: show full name, wrap if needed */
+    /* Dashboard welcome: keep one line and ellipsis so it does not collide with avatar */
     .header-left .welcome-title:not(.page-heading) {
-        white-space: normal;
-        overflow: visible;
-        text-overflow: unset;
-        max-width: none;
-        line-height: 1.25;
-        font-size: 1.35rem;
+        font-size: 1.2rem;
         font-weight: 800;
         flex: 1;
         min-width: 0;

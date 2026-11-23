@@ -2,9 +2,10 @@ import React, { useCallback, useState } from 'react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { mailboxFieldsForPlan } from './mailboxPlan';
 import './AdminMailboxes.css';
+import { getAccessToken } from "../../utils/authSession";
 
 export default function AdminMailboxes() {
-  const token = () => localStorage.getItem('token');
+  const token = () => getAccessToken();
   const [form, setForm] = useState(null);
   const [notice, setNotice] = useState({ default_days: 30, by_circle: {} });
   const [circles, setCircles] = useState([]);

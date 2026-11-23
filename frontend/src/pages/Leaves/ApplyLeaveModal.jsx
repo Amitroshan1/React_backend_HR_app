@@ -466,6 +466,7 @@ import { FiX, FiChevronDown } from 'react-icons/fi';
 import dayjs from 'dayjs'; 
 import './ApplyLeaveModal.css';
 import { formatDate } from '../../utils/dateFormat';
+import { getAccessToken } from "../../utils/authSession";
 
 const LEAVE_API_BASE = '/api/leave';
 
@@ -620,7 +621,9 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
     const isHalfDay =
         leaveType === 'Casual Leave' && casualLeaveDuration === 'Half Day';
     const isSingleDayLeave = isHalfDay || leaveType === 'Optional Leave';
-    const todayStr = dayjs().format('YYYY-MM-DD');
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const yearEndStr = `${todayStr.slice(0, 4)}-12-31`;
+    const yearEndLabel = dayjs(yearEndStr).format('DD MMM YYYY');
 
     // --- Day Calculation ---
     const totalDiff = (fromDate && toDate) ? dayjs(toDate).diff(dayjs(fromDate), 'day') + 1 : 0;
@@ -632,6 +635,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
 
     const minFromDate = todayStr;
     const minToDate = fromDate || todayStr;
+    const maxLeaveDate = yearEndStr;
 
     useEffect(() => {
         if (!isOpen) return;
@@ -645,7 +649,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
             setCompOffHint('');
             return undefined;
         }
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         if (!token) {
             setCompOffHint('Comp Off balance is deducted only after approval (oldest credit first).');
             return undefined;
@@ -684,7 +688,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
     useEffect(() => {
         if (!isOpen || leaveType !== 'Optional Leave') return;
 
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         if (!token) {
             setOptionalHolidaysError('Please login again to load optional holidays.');
             return;
@@ -773,7 +777,12 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        
+
+        if (!String(leaveType || "").trim() || leaveType === "Select leave type") {
+            alert("Please select a leave type.");
+            return;
+        }
+
         // Prevent submission if logic is bypassed
         if (leaveType.includes('Used') || leaveType.includes('Limit')) {
             alert("This leave type is not available.");
@@ -790,6 +799,10 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
         }
         if (toDate && fromDate && dayjs(toDate).isBefore(fromDate, 'day')) {
             alert("End date cannot be before start date.");
+            return;
+        }
+        if ((fromDate && dayjs(fromDate).isAfter(yearEndStr, 'day')) || (toDate && dayjs(toDate).isAfter(yearEndStr, 'day'))) {
+            alert(`Leave can only be applied for dates in the current year (until ${yearEndLabel}).`);
             return;
         }
 
@@ -927,6 +940,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                                         className="date-input"
                                         required
                                         min={minFromDate}
+                                        max={maxLeaveDate}
                                         readOnly={leaveType === 'Optional Leave'}
                                         disabled={leaveType === 'Optional Leave' && !optionalHoliday}
                                     />
@@ -943,11 +957,15 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                                             className="date-input"
                                             required
                                             min={minToDate}
+                                            max={maxLeaveDate}
                                         />
                                     </div>
                                 </div>
                             )}
                         </div>
+                        <p className="optional-holiday-hint">
+                            Dates must be between today and {yearEndLabel}. Next year opens on 1 Jan.
+                        </p>
                     </div>
 
                     <div className="form-group days-display">

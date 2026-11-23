@@ -268,6 +268,7 @@ import { FiArrowRight, FiDownload, FiChevronDown, FiCalendar, FiRefreshCw } from
 import './Attendance.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE_URL = "/api/leave";
 
@@ -448,6 +449,15 @@ const CalendarDayCell = ({ day, status, isFuture, date, details = {} }) => {
     else if (status === 'Abs') displayStatus = 'Absent';
     else if (status === 'Hol') displayStatus = 'Public Holiday';
     else if (status === 'HolOpt') displayStatus = 'Optional Holiday';
+    if (status === 'Pres' && details?.worked_on_holiday) {
+        displayStatus = 'Worked (Holiday)';
+    } else if (status === 'Pres' && details?.worked_on_leave) {
+        displayStatus = 'Worked (Leave)';
+    } else if (status === 'Pend' && details?.worked_on_holiday) {
+        displayStatus = 'Holiday · In';
+    } else if (status === 'Pend' && details?.worked_on_leave) {
+        displayStatus = 'Leave · In';
+    }
 
     const showWorkHours = Boolean(details?.punch_in && details?.punch_out && details?.work_hours);
     const workHoursText = showWorkHours ? formatCalendarWorkHours(details.work_hours) : '';
@@ -520,7 +530,7 @@ export const Attendance = () => {
   const fetchAttendance = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setLoading(false);
       return;
@@ -583,7 +593,7 @@ export const Attendance = () => {
   }, [monthNum, yearNum]);
 
     const handleDownloadExcel = async () => {
-        const token = localStorage.getItem('token');
+        const token = getAccessToken();
         if (!token) {
             setError('Please login again to download attendance.');
             return;

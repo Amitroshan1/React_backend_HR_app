@@ -12,14 +12,18 @@ import {
   useRef,
   useState,
 } from "react";
+import { getAccessToken, hasSignedInHint, isLikelyJwt } from "../utils/authSession";
 
 export const ATTENDANCE_UPDATED_EVENT = "hrms:attendance-updated";
 
 const AttendanceEventsContext = createContext(null);
 
 function buildEventsUrl(token) {
-  const q = new URLSearchParams({ access_token: token });
-  return `/api/attendance/events?${q.toString()}`;
+  if (isLikelyJwt(token)) {
+    const q = new URLSearchParams({ access_token: token });
+    return `/api/attendance/events?${q.toString()}`;
+  }
+  return `/api/attendance/events`;
 }
 
 export function AttendanceEventsProvider({ children }) {
@@ -59,8 +63,8 @@ export function AttendanceEventsProvider({ children }) {
   }, []);
 
   const connect = useCallback(() => {
-    const token = localStorage.getItem("token");
-    if (!token || typeof window === "undefined" || !window.EventSource) {
+    const token = getAccessToken();
+    if ((!token && !hasSignedInHint()) || typeof window === "undefined" || !window.EventSource) {
       setConnected(false);
       return;
     }
@@ -112,18 +116,7 @@ export function AttendanceEventsProvider({ children }) {
 
   useEffect(() => {
     connect();
-    const onStorage = (e) => {
-      if (e.key === "token") {
-        disconnect();
-        if (e.newValue) {
-          stoppedRef.current = false;
-          connect();
-        }
-      }
-    };
-    window.addEventListener("storage", onStorage);
     return () => {
-      window.removeEventListener("storage", onStorage);
       disconnect();
     };
   }, [connect, disconnect]);

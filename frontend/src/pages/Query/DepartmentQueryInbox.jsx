@@ -16,6 +16,7 @@ import {
   openQueryAttachmentFile,
   readApiResponse,
 } from "./queryChatHelpers";
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE_URL = "/api/query";
 
@@ -76,7 +77,7 @@ export const DepartmentQueryInbox = () => {
   }, [setChatInUrl]);
 
   const getAuthHeaders = () => {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
@@ -361,7 +362,7 @@ export const DepartmentQueryInbox = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
     if (!token) return undefined;
     (async () => {
       try {

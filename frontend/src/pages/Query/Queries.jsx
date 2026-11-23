@@ -508,6 +508,7 @@ import {
   groupMyQueriesForHistory,
   shortDepartmentLabel,
 } from './queryChatHelpers';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE_URL = '/api/query';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -637,7 +638,7 @@ export const Queries = () => {
   }, [setChatInUrl]);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (token) {
       fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
         .then((res) => res.json().catch(() => ({})))
@@ -667,7 +668,7 @@ export const Queries = () => {
   }, [activeChat?.messages]);
 
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
@@ -821,7 +822,7 @@ export const Queries = () => {
   }, [location.search, activeChat]);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     const params = new URLSearchParams(location.search);
     if (params.get('from') !== 'notification') return;

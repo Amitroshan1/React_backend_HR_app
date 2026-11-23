@@ -5,6 +5,7 @@ import { fetchAndOpenAuthenticatedFile } from '../../utils/openBlobFile';
 import { toAuthContentUrl } from '../../utils/secureFileUrl';
 import './HRPolicyCenter.css';
 import './OffboardingDashboard.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -35,7 +36,7 @@ export const HRPolicyCenter = ({ onBack, circleOptions = [], empTypeOptions = []
   };
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

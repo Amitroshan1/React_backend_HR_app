@@ -6,6 +6,7 @@ import { useUser } from "../../components/layout/UserContext";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDateDDMMYYYY } from "../../utils/dateFormat";
 import "./ITOfficialEmailRequests.css";
+import { getAccessToken } from "../../utils/authSession";
 
 const IT_API_BASE = "/api/it";
 
@@ -30,7 +31,7 @@ export default function ITAssetAssignmentRequests() {
       setLoading(true);
       setError("");
       try {
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         const res = await fetch(
           `${IT_API_BASE}/asset-assignment-requests?status=${encodeURIComponent(status)}`,
           { headers: token ? { Authorization: `Bearer ${token}` } : {} },
@@ -60,7 +61,7 @@ export default function ITAssetAssignmentRequests() {
     setError("");
     setNotice("");
     try {
-      const token = localStorage.getItem("token");
+      const token = getAccessToken();
       const res = await fetch(
         `${IT_API_BASE}/asset-assignment-requests/${selected.id}/complete`,
         {

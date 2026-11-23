@@ -9,6 +9,7 @@ import {
 } from "../../Query/queryChatHelpers";
 import "./OpenTicket.css";
 import { formatDate as fmt } from "../../../utils/dateFormat";
+import { getAccessToken } from "../../../utils/authSession";
 
 const QUERY_API_BASE = "/api/query";
 const PAGE_SIZE = 6;
@@ -28,7 +29,7 @@ const STATUS_META = {
 };
 
 const authHeaders = () => {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

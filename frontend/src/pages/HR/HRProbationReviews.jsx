@@ -4,6 +4,7 @@ import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDate } from "../../utils/dateFormat";
 import "./HRProbationReviews.css";
 import "./HrUpdatesShared.css";
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = "/api/HumanResource";
 
@@ -23,7 +24,7 @@ const RECOMMENDATION_LABELS = {
 };
 
 function authHeaders() {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

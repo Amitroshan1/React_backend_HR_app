@@ -2,6 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { fetchAndOpenAuthenticatedFile } from '../../../../utils/openBlobFile';
 import { fetchAuthenticatedObjectUrl } from '../../../../utils/secureFileUrl';
 import { toProfileDocContentUrl, uploadDocFileUrl } from '../../utils/profileApi';
+import { toast } from "react-toastify";
+import { getAccessToken } from "../../../../utils/authSession";
+import { isDecodableImageFile, isLikelyImageFile } from '../../utils/validateImageFile';
+
+const PROFILE_FILE_MAX_BYTES = 5 * 1024 * 1024;
+const PROFILE_FILE_MAX_MB = 5;
 
 const IMAGE_EXT_PATTERN = /\.(jpe?g|png|gif|webp|bmp|svg)$/i;
 
@@ -87,11 +93,39 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
         const file = e.target.files[0];
         if (!file) return;
 
+        const reject = (message) => {
+            setIsUploading(false);
+            setProgress(0);
+            setUploadError(message);
+            toast.error(message, { toastId: message, autoClose: 5000 });
+            if (inputRef.current) inputRef.current.value = '';
+        };
+
+        const size = Number(file.size);
+        if (!Number.isFinite(size) || size <= 0) {
+            reject('Could not read this file. Please choose another file.');
+            return;
+        }
+        if (size > PROFILE_FILE_MAX_BYTES) {
+            reject(
+                `File is too large (${(size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed size is ${PROFILE_FILE_MAX_MB} MB.`
+            );
+            return;
+        }
+
         if (accept) {
             const allowedExts = accept.replace(/\./g, '').toLowerCase().split(',');
             const ext = (file.name.split('.').pop() || '').toLowerCase();
             if (!allowedExts.includes(ext)) {
-                setUploadError(`Unsupported file format (.${ext}). Please use .pdf, .jpg, .jpeg, or .png only.`);
+                reject(`Unsupported file format (.${ext}). Please use .pdf, .jpg, .jpeg, or .png only.`);
+                return;
+            }
+        }
+
+        if (isLikelyImageFile(file)) {
+            const readable = await isDecodableImageFile(file);
+            if (!readable) {
+                setUploadError('This image file is corrupted or unreadable. Please upload a valid JPEG or PNG.');
                 if (inputRef.current) inputRef.current.value = '';
                 return;
             }
@@ -113,7 +147,7 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
             formData.append('admin_id', String(adminId));
             formData.append('field', name);
 
-            const token = localStorage.getItem('token');
+            const token = getAccessToken();
             const res = await fetch(uploadProfileFileUrl, {
                 method: 'POST',
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -338,6 +372,9 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
                 </>
             )}
 
+            <p className="avatar-size-hint" style={{ marginTop: 6, textAlign: 'left' }}>
+                PDF, JPG or PNG. Max {PROFILE_FILE_MAX_MB} MB.
+            </p>
             {(uploadError || error) && <p className="error-text">{uploadError || error}</p>}
         </div>
     );

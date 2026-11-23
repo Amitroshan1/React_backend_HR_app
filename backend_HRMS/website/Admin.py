@@ -57,16 +57,16 @@ def _norm(value):
 
 
 def _admin_required(fn):
-    """Decorator: company Admin, or platform Super Admin on tenant 1."""
+    """Decorator: org Admin, Super Admin, or department Admin (HR/Accounts/Finance Admin)."""
     from functools import wraps
-    from .plan_features import is_org_admin
+    from .plan_features import can_access_admin_panel
 
     @wraps(fn)
     def wrapper(*args, **kwargs):
         claims = get_jwt()
         if not claims:
             return jsonify({"success": False, "message": "Unauthorized"}), 401
-        if not is_org_admin(claims):
+        if not can_access_admin_panel(claims):
             return jsonify({
                 "success": False,
                 "message": "Admin access required"
@@ -1253,17 +1253,29 @@ def list_deployed_customers():
             DeployedCustomer.company_name.asc()
         ).all()
     )
+    from .models.tenant import Tenant
+
+    tenants = {t.slug: t for t in Tenant.query.all() if t.slug}
     plans, statuses = _registry_meta()
     counts = {s: 0 for s in STATUS_ORDER}
+    kyc_counts = {}
+    customers = []
     for r in rows:
         key = normalize_status(r.status) or "provisioning"
         counts[key] = counts.get(key, 0) + 1
+        payload = r.to_dict()
+        tenant = tenants.get(r.slug)
+        payload["kyc_status"] = (tenant.kyc_status or "not_required") if tenant else "not_required"
+        payload["tenant_id"] = tenant.id if tenant else None
+        kyc_counts[payload["kyc_status"]] = kyc_counts.get(payload["kyc_status"], 0) + 1
+        customers.append(payload)
     return jsonify({
         "success": True,
-        "customers": [r.to_dict() for r in rows],
+        "customers": customers,
         "plans": plans,
         "statuses": statuses,
         "counts": counts,
+        "kyc_counts": kyc_counts,
         "phase": 1,
         "phase_label": "Shared-DB SaaS — register company (creates tenant row)",
         "architecture": "shared_db",
@@ -1295,8 +1307,30 @@ def create_deployed_customer():
             "message": "Plan must be basic, essential, or enterprise",
         }), 400
 
+    def _truthy(value):
+        if value is True or value is False:
+            return value
+        return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+    send_kyb_invite = _truthy(data.get("send_kyb_invite"))
+    skip_kyb = _truthy(data.get("skip_kyb"))
+    if send_kyb_invite and skip_kyb:
+        return jsonify({
+            "success": False,
+            "message": "Choose either Send onboarding link or Skip KYB, not both",
+        }), 400
+
+    kyb_email = (data.get("kyb_email") or data.get("contact_email") or data.get("admin_email") or "").strip().lower()
+    if send_kyb_invite and (not kyb_email or "@" not in kyb_email):
+        return jsonify({
+            "success": False,
+            "message": "Onboarding email is required to send the verification link",
+        }), 400
+
     status_raw = data.get("status")
-    if status_raw is None or str(status_raw).strip() == "":
+    if send_kyb_invite:
+        status = "provisioning"
+    elif status_raw is None or str(status_raw).strip() == "":
         # Shared-DB: no silo DB to wait for — default active
         status = "active"
     else:
@@ -1362,7 +1396,34 @@ def create_deployed_customer():
             mobile=admin_mobile,
             performed_by=(get_jwt() or {}).get("email") or "platform",
         )
+    kyb_raw = None
+    kyb_invite = None
+    kyb_email_sent = False
+    kyb_email_error = ""
+    if skip_kyb:
+        tenant.kyc_status = "skipped"
+    elif send_kyb_invite:
+        from .tenant_kyb_service import issue_kyb_invite, kyb_link
+
+        actor_id = None
+        try:
+            actor_id = int(get_jwt_identity())
+        except (TypeError, ValueError):
+            actor_id = None
+        kyb_invite, kyb_raw = issue_kyb_invite(
+            tenant=tenant, to_email=kyb_email, actor_id=actor_id
+        )
+        tenant.status = "provisioning"
+        row.status = "provisioning"
     db.session.commit()
+    if kyb_raw:
+        from .email import send_company_kyb_invite_email
+
+        kyb_email_sent, kyb_email_error = send_company_kyb_invite_email(
+            to_email=kyb_email,
+            company_name=company_name,
+            raw_token=kyb_raw,
+        )
     payload = row.to_dict()
     payload["tenant_id"] = tenant.id
     body = {
@@ -1383,6 +1444,24 @@ def create_deployed_customer():
             "first_name": tenant_admin.first_name,
             "emp_type": tenant_admin.emp_type,
         }
+    if send_kyb_invite and kyb_invite is not None:
+        from .tenant_kyb_service import kyb_link
+
+        body["kyb"] = {
+            "status": "invite_sent",
+            "email": kyb_email,
+            "email_sent": bool(kyb_email_sent),
+            "email_error": kyb_email_error or "",
+            "invite_url": kyb_link(kyb_raw) if kyb_raw else "",
+            "expires_at": kyb_invite.expires_at.isoformat() if kyb_invite.expires_at else None,
+        }
+        if not kyb_email_sent:
+            body["message"] = (
+                (body["message"] or "Company registered")
+                + ". Verification email could not be sent — copy the onboarding link from this response."
+            )
+    elif skip_kyb:
+        body["kyb"] = {"status": "skipped"}
     return jsonify(body), 201
 
 
@@ -1401,14 +1480,183 @@ def get_deployed_customer(customer_id):
     if tenant is None and (row.company_name or "").strip():
         tenant = Tenant.query.filter_by(name=row.company_name.strip()).first()
     plans, statuses = _registry_meta()
+    customer = row.to_dict()
+    if tenant:
+        customer["kyc_status"] = tenant.kyc_status or "not_required"
+        customer["tenant_id"] = tenant.id
+    kyb = None
+    if tenant:
+        from .tenant_kyb_service import kyb_review_payload
+
+        kyb = kyb_review_payload(tenant)
+        kyb.pop("success", None)
     return jsonify({
         "success": True,
-        "customer": row.to_dict(),
+        "customer": customer,
         "tenant": tenant.to_dict() if tenant else None,
+        "kyb": kyb,
         "plans": plans,
         "statuses": statuses,
         "silo_provision_legacy": _silo_provision_legacy_enabled(),
     }), 200
+
+
+@admin_bp.route("/customers/<int:customer_id>/kyb-invite", methods=["POST"])
+@jwt_required()
+@_admin_required
+def resend_customer_kyb_invite(customer_id):
+    if not _can_manage_customer_registry():
+        return _customers_access_denied()
+    row = DeployedCustomer.query.get(customer_id)
+    if not row:
+        return jsonify({"success": False, "message": "Customer not found"}), 404
+    from .models.tenant import Tenant
+    from .tenant_kyb_service import issue_kyb_invite, kyb_link
+    from .email import send_company_kyb_invite_email
+
+    tenant = Tenant.query.filter_by(slug=row.slug).first()
+    if tenant is None:
+        return jsonify({"success": False, "message": "Tenant not found"}), 404
+    if (tenant.kyc_status or "").lower() == "verified":
+        return jsonify({"success": False, "message": "KYB is already verified"}), 409
+    data = request.get_json(silent=True) or {}
+    to_email = (data.get("kyb_email") or row.contact_email or "").strip().lower()
+    if not to_email or "@" not in to_email:
+        return jsonify({"success": False, "message": "Onboarding email is required"}), 400
+    actor_id = None
+    try:
+        actor_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        actor_id = None
+    invite, raw = issue_kyb_invite(tenant=tenant, to_email=to_email, actor_id=actor_id)
+    tenant.status = "provisioning"
+    row.status = "provisioning"
+    db.session.commit()
+    sent, err = send_company_kyb_invite_email(
+        to_email=to_email, company_name=tenant.name, raw_token=raw
+    )
+    return jsonify({
+        "success": True,
+        "kyb": {
+            "status": "invite_sent",
+            "email": to_email,
+            "email_sent": bool(sent),
+            "email_error": err or "",
+            "invite_url": kyb_link(raw),
+        },
+        "tenant": tenant.to_dict(),
+    }), 200
+
+
+def _customer_tenant_or_404(row):
+    from .models.tenant import Tenant
+    from .tenant_kyb_service import KybError
+
+    tenant = Tenant.query.filter_by(slug=row.slug).first() if row.slug else None
+    if tenant is None:
+        raise KybError("Tenant not found", status_code=404)
+    return tenant
+
+
+@admin_bp.route("/customers/<int:customer_id>/kyb", methods=["GET"])
+@jwt_required()
+@_admin_required
+def get_customer_kyb(customer_id):
+    if not _can_manage_customer_registry():
+        return _customers_access_denied()
+    row = DeployedCustomer.query.get(customer_id)
+    if not row:
+        return jsonify({"success": False, "message": "Customer not found"}), 404
+    from .tenant_kyb_service import KybError, kyb_review_payload
+
+    try:
+        tenant = _customer_tenant_or_404(row)
+        payload = kyb_review_payload(tenant)
+        payload["customer"] = row.to_dict()
+        payload["customer"]["kyc_status"] = tenant.kyc_status or "not_required"
+        payload["customer"]["tenant_id"] = tenant.id
+        return jsonify(payload), 200
+    except KybError as exc:
+        return jsonify({"success": False, "message": exc.message}), exc.status_code
+
+
+@admin_bp.route("/customers/<int:customer_id>/kyb/approve", methods=["POST"])
+@jwt_required()
+@_admin_required
+def approve_customer_kyb(customer_id):
+    if not _can_manage_customer_registry():
+        return _customers_access_denied()
+    row = DeployedCustomer.query.get(customer_id)
+    if not row:
+        return jsonify({"success": False, "message": "Customer not found"}), 404
+    from .tenant_kyb_service import KybError, approve_kyb
+
+    try:
+        actor_id = None
+        try:
+            actor_id = int(get_jwt_identity())
+        except (TypeError, ValueError):
+            actor_id = None
+        tenant = _customer_tenant_or_404(row)
+        payload = approve_kyb(tenant=tenant, actor_id=actor_id)
+        payload["customer"] = row.to_dict()
+        return jsonify(payload), 200
+    except KybError as exc:
+        return jsonify({"success": False, "message": exc.message}), exc.status_code
+
+
+@admin_bp.route("/customers/<int:customer_id>/kyb/request-changes", methods=["POST"])
+@jwt_required()
+@_admin_required
+def request_customer_kyb_changes(customer_id):
+    if not _can_manage_customer_registry():
+        return _customers_access_denied()
+    row = DeployedCustomer.query.get(customer_id)
+    if not row:
+        return jsonify({"success": False, "message": "Customer not found"}), 404
+    from .tenant_kyb_service import KybError, request_kyb_changes
+
+    data = request.get_json(silent=True) or {}
+    try:
+        actor_id = None
+        try:
+            actor_id = int(get_jwt_identity())
+        except (TypeError, ValueError):
+            actor_id = None
+        tenant = _customer_tenant_or_404(row)
+        payload, _raw = request_kyb_changes(
+            tenant=tenant, note=data.get("note") or "", actor_id=actor_id
+        )
+        payload["customer"] = row.to_dict()
+        return jsonify(payload), 200
+    except KybError as exc:
+        return jsonify({"success": False, "message": exc.message}), exc.status_code
+
+
+@admin_bp.route("/customers/<int:customer_id>/kyb/documents/<int:doc_id>", methods=["GET"])
+@jwt_required()
+@_admin_required
+def download_customer_kyb_document(customer_id, doc_id):
+    if not _can_manage_customer_registry():
+        return _customers_access_denied()
+    row = DeployedCustomer.query.get(customer_id)
+    if not row:
+        return jsonify({"success": False, "message": "Customer not found"}), 404
+    from flask import send_file
+    from .tenant_kyb_service import KybError, kyb_document_abs_path, kyb_document_for_admin
+
+    try:
+        tenant = _customer_tenant_or_404(row)
+        doc = kyb_document_for_admin(tenant=tenant, doc_id=doc_id)
+        path = kyb_document_abs_path(doc)
+        return send_file(
+            path,
+            as_attachment=True,
+            download_name=doc.original_filename or f"{doc.doc_type}.bin",
+            mimetype=doc.content_type or "application/octet-stream",
+        )
+    except KybError as exc:
+        return jsonify({"success": False, "message": exc.message}), exc.status_code
 
 
 @admin_bp.route("/customers/<int:customer_id>", methods=["PATCH"])
@@ -1489,6 +1737,16 @@ def update_deployed_customer(customer_id):
                     f"Cannot change status from {row.status} to {new_status}"
                 ),
             }), 400
+        if new_status == "active":
+            from .models.tenant import Tenant
+
+            pending = Tenant.query.filter_by(slug=row.slug).first() if row.slug else None
+            kyc = (getattr(pending, "kyc_status", None) or "not_required").lower()
+            if kyc in ("invite_sent", "in_progress", "submitted", "needs_fix"):
+                return jsonify({
+                    "success": False,
+                    "message": "Complete KYB review (Approve) before activating this company",
+                }), 409
         row.status = new_status
 
     if "go_live_date" in data:

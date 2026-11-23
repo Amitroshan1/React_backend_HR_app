@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import './HrAdminRequest.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -17,7 +18,7 @@ export default function HrAdminRequest({ onBack }) {
     setError('');
     setNotice('');
     try {
-      const token = localStorage.getItem('token');
+      const token = getAccessToken();
       const res = await fetch(`${HR_API_BASE}/admin-requests`, {
         method: 'POST',
         headers: {

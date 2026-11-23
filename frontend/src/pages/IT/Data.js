@@ -9,6 +9,11 @@ import {
   isApiWarningFailure,
 } from "../../utils/apiError";
 import { notifyApiFailure } from "../../utils/notify";
+import {
+  EMPLOYEES_STORAGE_KEY,
+  PRIVACY_CLEAR_EVENT,
+} from "../../utils/clientPrivacy";
+import { getAccessToken } from "../../utils/authSession";
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  STORAGE KEYS
@@ -17,7 +22,7 @@ import { notifyApiFailure } from "../../utils/notify";
 export const UNITS_KEY = "assetUnits";
 export const DELETED_KEY = "deletedAssets";
 export const INVENTORY_KEY = "inventory";
-export const EMPLOYEES_KEY = "employees";
+export const EMPLOYEES_KEY = EMPLOYEES_STORAGE_KEY;
 export const SOFTWARE_KEY = "softwareInventory";
 export const TICKETS_KEY = "support_tickets";
 export const REMOVED_IT_KEY = "removedITAssets";
@@ -74,8 +79,23 @@ function _readLocalJson(key, fallback = []) {
  * Full data stays in memory; disk gets a slim copy. If quota is still full,
  * drop this key (and other IT caches if needed) and continue memory-only.
  */
+const MEMORY_ONLY_KEYS = new Set([EMPLOYEES_KEY]);
+
+function _dropEmployeeDisk() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.removeItem(EMPLOYEES_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 function _safePersist(key, value) {
   _mem[key] = value;
+  if (MEMORY_ONLY_KEYS.has(key)) {
+    _dropEmployeeDisk();
+    return true;
+  }
   if (typeof localStorage === "undefined") return false;
 
   const write = (payload) => {
@@ -131,6 +151,11 @@ function _safePersist(key, value) {
 
 function _getCached(key, fallback = []) {
   if (_mem[key] != null) return _mem[key];
+  if (MEMORY_ONLY_KEYS.has(key)) {
+    _mem[key] = fallback;
+    _dropEmployeeDisk();
+    return fallback;
+  }
   const fromDisk = _readLocalJson(key, fallback);
   _mem[key] = fromDisk;
   return fromDisk;
@@ -261,7 +286,15 @@ const initStorage = () => {
 
 // Run on module load.
 _reclaimLocalStorageQuota();
+_dropEmployeeDisk();
 initStorage();
+
+if (typeof window !== "undefined") {
+  window.addEventListener(PRIVACY_CLEAR_EVENT, () => {
+    _mem[EMPLOYEES_KEY] = null;
+    _dropEmployeeDisk();
+  });
+}
 
 const runAssignedToShapeMigrationOnce = () => {
   try {
@@ -988,7 +1021,7 @@ export const compressImage = (file, _options = {}) =>
 const IT_API_BASE = "/api/it";
 
 const _tokenHeaders = () => {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
@@ -1379,8 +1412,10 @@ export const createHardwareUnitsAPI = async ({
         const unitNotes = String(r.remarks || r.notes || "").trim() || null;
         const mobileTablet = isMobileTabletHwType(hwType);
         const modelValue = mobileTablet ? (r.make || r.model || "") : r.model;
+        const laptopCode = String(r.model || "").trim();
         return {
-          unit_code: mobileTablet ? null : r.serialNumber,
+          // Unique unit key is Laptop/Desktop Code (model), not serial.
+          unit_code: mobileTablet ? null : (laptopCode || r.serialNumber),
           asset_name: assetName,
           category,
           hw_type: hwType,
@@ -1799,7 +1834,7 @@ export const downloadActivityLogExcelAPI = async (filters = {}, filenameHint = "
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.inventoryCategory) params.set("inventory_category", filters.inventoryCategory);
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   const qs = params.toString();
   const res = await fetch(`${IT_API_BASE}/activity-log.xlsx${qs ? `?${qs}` : ""}`, {
     method: "GET",
@@ -1851,7 +1886,7 @@ export const createInventoryReviewAPI = async (itemId, { reviewText, conditionGr
 
 /** P2: download timeline Excel for one unit. */
 export const downloadUnitTimelineExcelAPI = async (unitId, assetLabel = "asset") => {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   const res = await fetch(`${IT_API_BASE}/units/${unitId}/timeline.xlsx`, {
     method: "GET",
     headers: {
@@ -2249,7 +2284,7 @@ export const downloadRepairBillsExcelAPI = async ({ month, q } = {}) => {
   const params = new URLSearchParams();
   if (month) params.set("month", month);
   if (q) params.set("q", q);
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   const qs = params.toString();
   const res = await fetch(`${IT_API_BASE}/repair-bills.xlsx${qs ? `?${qs}` : ""}`, {
     method: "GET",

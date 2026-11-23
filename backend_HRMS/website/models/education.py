@@ -39,6 +39,11 @@ class UploadDoc(db.Model, UserMixin):
     aadhaar_number = db.Column(db.String(12), nullable=True)
     pan_number = db.Column(db.String(10), nullable=True)
     bank_account_number = db.Column(db.String(30), nullable=True)
+    aadhaar_number_enc = db.Column(db.LargeBinary, nullable=True)
+    pan_number_enc = db.Column(db.LargeBinary, nullable=True)
+    bank_account_number_enc = db.Column(db.LargeBinary, nullable=True)
+    bank_account_last4 = db.Column(db.String(4), nullable=True)
+    pan_last4 = db.Column(db.String(4), nullable=True)
     bank_name = db.Column(db.String(120), nullable=True)
     bank_branch_code = db.Column(db.String(20), nullable=True)
     ifsc_code = db.Column(db.String(11), nullable=True)
@@ -64,7 +69,22 @@ class UploadDoc(db.Model, UserMixin):
 
 
     def to_dict(self):
-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+        from ..pii_crypto import pii_get
+
+        skip = {
+            "aadhaar_number_enc",
+            "pan_number_enc",
+            "bank_account_number_enc",
+        }
+        data = {
+            c.name: getattr(self, c.name)
+            for c in self.__table__.columns
+            if c.name not in skip
+        }
+        data["aadhaar_number"] = pii_get(self, "aadhaar_number")
+        data["pan_number"] = pii_get(self, "pan_number")
+        data["bank_account_number"] = pii_get(self, "bank_account_number")
+        return data
     
     def __repr__(self):
         return f'<UploadDoc admin_id={self.admin_id}>'

@@ -2,11 +2,12 @@ import { useMemo, useState } from "react";
 import "./EmployeePerformance.css";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = "/api/performance";
 
 function authHeaders() {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

@@ -122,9 +122,11 @@ import { toast } from "react-toastify";
 import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
 import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt, FaFileAlt } from "react-icons/fa";
 import "./style/Headers.css";
-import { clearPlanContext, canAccessItPanel, canAccessHrPanel, canAccessAccountPanel, canAccessFinancePanel } from "../utils/planFeatures";
+import { clearPlanContext, canAccessItPanel, canAccessHrPanel, canAccessAccountPanel, canAccessFinancePanel, isAdminUser, isCompanyAdmin, isPlatformSuperAdmin } from "../utils/planFeatures";
 import { clearPersistedPanelViews } from "../hooks/usePersistedView";
 import { clearSensitiveToken } from "../utils/sensitiveDataAuth";
+import { clearClientPrivacyCaches } from "../utils/clientPrivacy";
+import { clearAccessCookie, clearAccessToken, getAccessToken, hasSignedInHint } from "../utils/authSession";
 import { DEPARTMENT_TITLES, getPanelLinkLabel } from "../utils/departmentLabels";
 import { isAdminDepartmentPath } from "./Admin/adminVisit";
 
@@ -158,7 +160,7 @@ const getPageInfo = (pathname, firstName) => {
     }
 
     const pathMap = {
-        '/dashboard': { title: `Welcome, ${firstName}!`, subtitle: "Overview", isDashboard: true },
+        '/dashboard': { title: firstName ? `Welcome, ${firstName}!` : 'Welcome', subtitle: "Overview", isDashboard: true },
         '/attendance': { title: 'Attendance', subtitle: 'Manage records' },
         '/leaves': { title: 'Leaves', subtitle: 'Apply/Check balance' },
         '/leaves/comp-off': { title: 'Comp Off Details', subtitle: 'Credits, expiry and usage history' },
@@ -239,7 +241,7 @@ const getPageInfo = (pathname, firstName) => {
     return { title: "Portal", subtitle: "" };
 };
 
-export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) => {
+export const Headers = ({ username, role, profilePic, hasManagerAccess, user, profileUnavailable }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [queryUnreadCount, setQueryUnreadCount] = useState(0);
     const dropdownRef = useRef(null);
@@ -247,7 +249,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     const navigate = useNavigate();
     
     // Normalize Data
-    const firstName = username ? username.split(' ')[0] : 'User';
+    const firstName = username ? username.split(' ')[0] : (profileUnavailable ? '' : 'there');
     const rawRole = role || "Employee";
     const roleKey = rawRole.toLowerCase().trim();
 
@@ -278,7 +280,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         : pageInfo.title;
     const { subtitle, isDashboard } = pageInfo;
 
-    // Map role variations to standardized format and route. Uses emp_type, designation, department, etc.
+    // Badge + primary panel from emp_type only. Job title must not relabel Super Admin as Account.
     const getRoleInfo = (role, user) => {
         const roleMap = {
             hr: { display: "HR", route: "/hr", hasPanel: true },
@@ -302,98 +304,38 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
             admin: { display: "Admin", route: "/admin", hasPanel: true },
             administrator: { display: "Admin", route: "/admin", hasPanel: true },
             administration: { display: "Admin", route: "/admin", hasPanel: true },
+            "super admin": { display: "Super Admin", route: "/admin", hasPanel: true },
+            superadmin: { display: "Super Admin", route: "/admin", hasPanel: true },
+            "platform super admin": { display: "Super Admin", route: "/admin", hasPanel: true },
         };
 
-        /** When emp_type is generic (Super Admin), infer HR / IT / Accounts from title text. */
-        const inferPanelFromKeywords = (raw) => {
-            const s = String(raw ?? "").trim();
-            if (!s) return null;
-            const n = s.toLowerCase();
-            if (/\bhuman\s+resources?\b|\bhr\b/i.test(s)) {
-                return { display: "HR", route: "/hr", hasPanel: true };
-            }
-            if (/\bit\s+department\b|\binformation\s+technology\b|(^|\s)it(\s|$)/i.test(n)) {
-                return { display: "IT", route: "/it", hasPanel: true };
-            }
-            if (/\baccounts\b|\baccountant\b|(^|\s)account(\s|$)/i.test(s)) {
-                return { display: "Account", route: "/account", hasPanel: true };
-            }
-            if (/\bfinance\b/i.test(s)) {
-                return { display: "Finance", route: "/finance", hasPanel: true };
-            }
-            return null;
-        };
+        const primary = String(user?.emp_type || role || "").trim();
+        const normalized = primary.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
 
-        const orderedCandidates = [];
-        const push = (v) => {
-            if (v == null || v === "") return;
-            const t = String(v).trim();
-            if (!t || orderedCandidates.includes(t)) return;
-            orderedCandidates.push(t);
-        };
-
-        push(role);
-        if (user) {
-            push(user.emp_type);
-            push(user.designation);
-            push(user.department);
-            push(user.role);
-            push(user.title);
-            if (Array.isArray(user.roles)) user.roles.forEach((r) => push(r));
-            else if (user.roles) push(String(user.roles));
+        if (normalized.includes("super admin") || normalized === "superadmin") {
+            return { display: "Super Admin", route: "/admin", hasPanel: true };
+        }
+        if (["admin", "administrator", "administration"].includes(normalized)) {
+            return { display: "Admin", route: "/admin", hasPanel: true };
         }
 
-        let result = { display: role || "Employee", route: null, hasPanel: false };
+        const exact = roleMap[normalized];
+        if (exact) return exact;
 
-        for (const cand of orderedCandidates) {
-            const normalized = String(cand).toLowerCase().trim();
-            const exact = roleMap[normalized];
-            if (exact?.hasPanel) {
-                result = exact;
-                break;
-            }
-            const inferred = inferPanelFromKeywords(cand);
-            if (inferred?.hasPanel) {
-                result = inferred;
-                break;
-            }
+        if (/\bhuman\s+resources?\b/.test(normalized) || normalized === "hr" || normalized.startsWith("hr ")) {
+            return { display: "HR", route: "/hr", hasPanel: true };
+        }
+        if (normalized === "it" || normalized === "it department" || normalized === "information technology") {
+            return { display: "IT", route: "/it", hasPanel: true };
+        }
+        if (normalized === "account" || normalized.startsWith("account")) {
+            return { display: "Account", route: "/account", hasPanel: true };
+        }
+        if (normalized === "finance" || normalized.startsWith("finance ") || normalized.includes("finance")) {
+            return { display: "Finance", route: "/finance", hasPanel: true };
         }
 
-        const primaryNorm = String(orderedCandidates[0] ?? "").toLowerCase().trim();
-        if (!result.hasPanel && primaryNorm) {
-            if (primaryNorm.includes("it") || primaryNorm.includes("tech") || primaryNorm.includes("information")) {
-                result = { display: "IT", route: "/it", hasPanel: true };
-            }
-        }
-
-        if (!result.hasPanel && user) {
-            try {
-                const rolesArr = Array.isArray(user.roles) ? user.roles : user.roles ? String(user.roles).split(",") : [];
-                const permsArr = Array.isArray(user.permissions) ? user.permissions : user.permissions ? String(user.permissions).split(",") : [];
-                const combined = [...rolesArr, ...permsArr].map(String).join(" ").toLowerCase();
-                if (combined.includes("it") || combined.includes("information") || combined.includes("tech")) {
-                    result = { display: "IT", route: "/it", hasPanel: true };
-                }
-                if (!result.hasPanel && (combined.includes("human resource") || combined.includes(" hr"))) {
-                    result = { display: "HR", route: "/hr", hasPanel: true };
-                }
-            } catch (e) {
-                /* ignore */
-            }
-        }
-
-        if (!result.hasPanel) {
-            result = { display: role || "Employee", route: null, hasPanel: false };
-        }
-
-        console.log("Header Role Debug:", {
-            receivedRole: role,
-            candidates: orderedCandidates,
-            roleInfo: result,
-            userFields: { emp_type: user?.emp_type, designation: user?.designation, department: user?.department },
-        });
-
-        return result;
+        return { display: primary || "Employee", route: null, hasPanel: false };
     };
 
     const roleInfo = getRoleInfo(rawRole, user);
@@ -409,12 +351,11 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         );
     })();
     const showManagerPanel = hasManagerAccess === true || ["manager", "managers"].includes(roleKey);
-    const isAdminRole =
-        ["admin", "administrator", "administration"].includes(roleKey) ||
-        roleKey.includes("super");
+    const isOrgWideAdmin = isCompanyAdmin(user) || isPlatformSuperAdmin(user);
+    const isSuperAdmin = isPlatformSuperAdmin(user);
 
     const panelRouteAllowed = (route) => {
-        if (isAdminRole) return true;
+        if (isOrgWideAdmin) return true;
         if (route === "/hr") return canAccessHrPanel(user);
         if (route === "/account") return canAccessAccountPanel(user);
         if (route === "/finance") return canAccessFinancePanel(user);
@@ -424,10 +365,11 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
 
     const panelLinks = [];
     const isItPrimaryRole = roleInfo.display?.toLowerCase() === "it";
-    if (isAdminRole) {
+    if (isAdminUser(user)) {
         panelLinks.push({ display: "Admin", route: "/admin" });
-    } else {
-        if (roleInfo.hasPanel && roleInfo.route && panelRouteAllowed(roleInfo.route)) {
+    }
+    if (!isOrgWideAdmin) {
+        if (roleInfo.hasPanel && roleInfo.route && roleInfo.route !== "/admin" && panelRouteAllowed(roleInfo.route)) {
             panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
         }
         // Inventory Management — IT only, directly below IT Management
@@ -460,10 +402,9 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     useEffect(() => {
         let isMounted = true;
         let timerId = null;
-        const token = localStorage.getItem("token");
-
         const fetchUnreadCount = async () => {
-            if (!token) return;
+            const token = getAccessToken();
+            if (!token && !hasSignedInHint()) return;
             if (typeof document !== "undefined" && document.visibilityState !== "visible") {
                 return;
             }
@@ -472,7 +413,8 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
                 const response = await fetch("/api/notifications/unread-count",
                      {
                     method: "GET",
-                    headers: { Authorization: `Bearer ${token}` },
+                    credentials: "include",
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
                 });
                 if (!response.ok) {
                     const body = await response.text();
@@ -517,9 +459,12 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         clearLoginNotificationsFlag();
         localStorage.removeItem('token');
         localStorage.removeItem('lastActivityAt');
+        clearAccessToken();
         clearSensitiveToken();
         clearPlanContext();
+        clearClientPrivacyCaches();
         clearPersistedPanelViews();
+        void clearAccessCookie();
         navigate('/');
     };
 
@@ -537,7 +482,7 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
         <header className="header-container">
             <div className="header-content">
                 <div className="header-left">
-                    {!isDashboard && (
+                    {!isDashboard && !isOrgWideAdmin && (
                         <button
                             className="home-logo-btn"
                             onClick={() => navigate('/dashboard')}
@@ -547,8 +492,14 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                             <FaHome />
                         </button>
                     )}
-                    {title ? (
-                        <h1 className={`welcome-title ${!isDashboard ? 'page-heading' : ''}`}>{title}</h1>
+                    {isDashboard ? (
+                        <h1 className="welcome-title welcome-title--dash" title={firstName || undefined}>
+                            <span className="welcome-title__prefix">Welcome{firstName ? ',' : ''}</span>
+                            {firstName ? <span className="welcome-title__name">{firstName}</span> : null}
+                            {firstName ? <span className="welcome-title__bang">!</span> : null}
+                        </h1>
+                    ) : title ? (
+                        <h1 className="welcome-title page-heading" title={title}>{title}</h1>
                     ) : null}
                 </div>
 
@@ -571,6 +522,11 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                         <div className="divider"></div>
                     )}
 
+                    {isSuperAdmin ? (
+                        <button type="button" className="header-logout-btn" onClick={handleLogout}>
+                            <FaSignOutAlt /> <span>Logout</span>
+                        </button>
+                    ) : (
                     <div className="user-profile-wrapper" ref={dropdownRef}>
                         <div className="user-profile" onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
                             <div className="avatar-container">
@@ -583,8 +539,8 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                                 />
                             </div>
                             <div className="user-info hide-mobile">
-                                <p className="user-name">{firstName}</p>
-                                <p className="user-role">{roleInfo.display || rawRole}</p> 
+                                <p className="user-name" title={username || firstName || 'Profile'}>{firstName || 'Profile'}</p>
+                                <p className="user-role" title={roleInfo.display || rawRole}>{roleInfo.display || rawRole}</p> 
                             </div>
                             <FaChevronDown className={`dropdown-arrow ${isDropdownOpen ? 'open' : ''}`} />
                         </div>
@@ -592,7 +548,7 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                         {isDropdownOpen && (
                             <div className="profile-dropdown-card">
                                 <div className="dropdown-header">
-                                    <p className="d-full-name">{username || 'Full Name'}</p>
+                                    <p className="d-full-name">{username || (profileUnavailable ? 'Profile' : 'Full Name')}</p>
                                     <p className="d-role-label">{roleInfo.display || rawRole}</p>
                                 </div>
                                 <div className="dropdown-divider"></div>
@@ -631,6 +587,7 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                             </div>
                         )}
                     </div>
+                    )}
                 </div>
             </div>
         </header>

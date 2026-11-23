@@ -1,11 +1,11 @@
+import { getAccessToken } from "./authSession";
 /**
  * Secure HRMS file URLs.
  * Private uploads must not be loaded as bare /static/uploads/... (blocked without auth/signature).
  */
 
 export function getAuthToken() {
-  if (typeof localStorage === "undefined") return null;
-  return localStorage.getItem("token");
+  return getAccessToken();
 }
 
 /** Strip host; return pathname + search. */

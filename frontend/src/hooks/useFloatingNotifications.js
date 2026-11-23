@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { notifyInfo } from "../utils/notify";
+import { getAccessToken } from "../utils/authSession";
 
 const LOGIN_NOTIF_KEY = "loginNotificationsShown";
 
@@ -12,7 +13,7 @@ export function useFloatingNotifications(enabled) {
 
     useEffect(() => {
         if (!enabled || fetchedRef.current) return;
-        const token = localStorage.getItem("token");
+        const token = getAccessToken();
         if (!token) return;
         if (sessionStorage.getItem(LOGIN_NOTIF_KEY) === "1") return;
 

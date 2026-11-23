@@ -6,6 +6,7 @@ import Pager from '../../components/Pager';
 import { isPagedScreenEnabled } from '../../utils/pagedScreens';
 import { formatDate } from '../../utils/dateFormat';
 import { matchesListQuery } from './adminListQuery';
+import { getAccessToken } from "../../utils/authSession";
 
 const API = '/api/admin/leaves';
 const PER_PAGE = 25;
@@ -19,7 +20,7 @@ const leaveSearchValues = (row) => [
 ];
 
 async function fetchLeavesPage(params) {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   if (!token) throw new Error('Please sign in again.');
   const qs = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -55,7 +56,7 @@ const AdminLeaves = () => {
   useRefreshOnNavigate(() => {
     // The paged list loads itself and refetches when the status changes.
     if (paged) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setLoading(false);
       return;

@@ -9,11 +9,12 @@ import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import AssetsDashboard from "./AssetsPage/AssetsDashboard";
 import "../Admin/AdminDashboard.css";
 import "./ITPanel.css";
+import { getAccessToken } from "../../utils/authSession";
 
 const IT_API = "/api/it";
 
 function authHeaders() {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

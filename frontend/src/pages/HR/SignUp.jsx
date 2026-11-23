@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Search } from 'lucide-react';
 import './SignUp.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const MASTER_OPTIONS_API = '/api/auth/master-options';
 const FALLBACK_EMP_TYPES = ['Human Resource', 'Software Developer'];
@@ -11,7 +12,7 @@ export const SignUp = ({ onBack }) => {
   const [circleOptions, setCircleOptions] = useState(FALLBACK_CIRCLES);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (token) {
       fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
         .then((res) => res.json().catch(() => ({})))

@@ -61,6 +61,8 @@ class PunchSession(db.Model):
     # Attendance provenance (biometric integration). Defaults keep legacy rows = web.
     source = db.deferred(db.Column(db.String(20), nullable=True))  # web | biometric | hr | system
     closed_by = db.deferred(db.Column(db.String(20), nullable=True))  # web | biometric | hr | system
+    work_override_kind = db.deferred(db.Column(db.String(20), nullable=True))  # leave | holiday
+    work_override_reason = db.deferred(db.Column(db.String(500), nullable=True))
 
     punch = db.relationship("Punch", back_populates="sessions")
 

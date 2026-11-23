@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, BadgeCheck, ChevronDown, ChevronUp, Download, Eye, FileCheck2, Send } from 'lucide-react';
 import { useUser } from '../../components/layout/UserContext';
 import './NocApplication.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_URL = '/api/leave/noc-applications';
 const REQUEST_OPTIONS = [
@@ -20,7 +21,7 @@ const NO_DUES_DEPARTMENTS = [
 ];
 
 function authHeaders(json = false) {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return {
     Authorization: `Bearer ${token || ''}`,
     ...(json ? { 'Content-Type': 'application/json' } : {}),

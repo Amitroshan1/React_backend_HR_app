@@ -64,6 +64,19 @@ class TestCtcAdvancedLogic(unittest.TestCase):
             500.0,
         )
 
+    def test_eps_yearly_is_monthly_times_twelve(self):
+        split = adv.employer_pf_eps_split(
+            basic_salary=18537.5, dearness_allowance=0, as_of="2026-10-01"
+        )
+        self.assertEqual(
+            split["eps_contribution_yearly"],
+            round(split["eps_contribution_monthly"] * 12, 2),
+        )
+        self.assertEqual(
+            split["epf_er_contribution_yearly"],
+            round(split["epf_er_contribution_monthly"] * 12, 2),
+        )
+
     def test_nps_employer_capped_at_ten_pct(self):
         self.assertEqual(
             adv.nps_employer_monthly(basic_salary=50000, nps_employer_pct_of_basic=15),

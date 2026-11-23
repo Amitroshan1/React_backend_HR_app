@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { ArrowLeft, Search } from 'lucide-react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './UpdateLeave.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE = '/api/HumanResource';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -31,7 +32,7 @@ export const UpdateLeave = ({ onBack, empTypeOptions: propEmpTypeOptions, circle
   const hasSearchedRef = useRef(false);
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

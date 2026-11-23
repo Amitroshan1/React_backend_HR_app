@@ -55,9 +55,39 @@ def _cell(raw: dict, header_map: dict[str, str], key: str) -> str:
     return (raw.get(col, "") or "").strip() if col else ""
 
 
+CSV_WRONG_TYPE_MSG = (
+    "This file is not a CSV. Upload the employee import template (.csv), "
+    "not an image or Excel file."
+)
+
+
+def _looks_like_non_csv(content: bytes) -> bool:
+    if not content:
+        return False
+    head = content[:8]
+    return (
+        head.startswith(b"\x89PNG")
+        or head.startswith(b"\xff\xd8\xff")
+        or head.startswith(b"%PDF")
+        or head.startswith(b"GIF8")
+        or head.startswith(b"BM")
+        or head.startswith(b"PK")
+    )
+
+
 def parse_employee_csv(content: bytes | str) -> tuple[list[dict], list[dict]]:
     """Parse CSV into row dicts. Returns (rows, parse_errors)."""
-    text = content.decode("utf-8-sig") if isinstance(content, bytes) else content
+    if isinstance(content, bytes):
+        if not content.strip():
+            raise ValueError("The uploaded file is empty. Choose the CSV template and try again.")
+        if _looks_like_non_csv(content):
+            raise ValueError(CSV_WRONG_TYPE_MSG)
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError(CSV_WRONG_TYPE_MSG) from exc
+    else:
+        text = content
     reader = csv.DictReader(io.StringIO(text))
     header_map = _map_headers(reader.fieldnames)
     required = ["email", "first_name", "user_name", "mobile", "emp_id", "doj", "emp_type", "circle", "designation"]

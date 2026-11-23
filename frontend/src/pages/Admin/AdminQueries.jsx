@@ -3,6 +3,7 @@ import './AdminList.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
 import { matchesListQuery } from './adminListQuery';
+import { getAccessToken } from "../../utils/authSession";
 
 const API = '/api/admin/queries';
 
@@ -16,7 +17,7 @@ const AdminQueries = () => {
   const [detailData, setDetailData] = useState(null);
 
   useRefreshOnNavigate(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setLoading(false);
       return;
@@ -33,7 +34,7 @@ const AdminQueries = () => {
   }, [status]);
 
   const handleView = (queryId) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) return;
     setDetailLoading(true);
     setDetailData(null);

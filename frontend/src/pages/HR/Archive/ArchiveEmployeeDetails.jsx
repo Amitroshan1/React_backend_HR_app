@@ -5,6 +5,7 @@ import { formatDateDDMMYYYY } from '../../../utils/dateFormat';
 import { fetchAuthenticatedObjectUrl, toAuthContentUrl } from '../../../utils/secureFileUrl';
 import { fetchAndOpenAuthenticatedFile } from '../../../utils/openBlobFile';
 import '../offboarding-ui.css';
+import { getAccessToken } from "../../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -75,7 +76,7 @@ const ArchiveEmployeeDetails = () => {
   });
 
   const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

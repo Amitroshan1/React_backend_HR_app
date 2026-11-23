@@ -17,6 +17,7 @@ class CTCChangeRequest(db.Model):
     kind = db.Column(db.String(32), nullable=False, default="employee_ctc", index=True)
     status = db.Column(db.String(24), nullable=False, default="pending_finance", index=True)
     payload = db.Column(db.JSON, nullable=False)
+    json_blob = db.Column(db.LargeBinary, nullable=True)
     note = db.Column(db.String(255), nullable=True)
     reject_reason = db.Column(db.String(500), nullable=True)
     effective_from = db.Column(db.Date, nullable=True)

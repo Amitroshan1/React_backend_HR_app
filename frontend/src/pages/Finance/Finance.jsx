@@ -18,11 +18,12 @@ import { TaxDeclarationReview } from "../TaxDeclaration/TaxDeclarationReview";
 import { TaxDeclarationReviewDetail } from "../TaxDeclaration/TaxDeclarationReviewDetail";
 import { hasFeature } from "../../utils/planFeatures";
 import "./Finance.css";
+import { getAccessToken } from "../../utils/authSession";
 
 const API = "/api/finance";
 
 function authHeaders() {
-  const token = localStorage.getItem("token");
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

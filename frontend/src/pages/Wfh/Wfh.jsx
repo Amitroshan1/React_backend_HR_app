@@ -164,6 +164,7 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
 import { errorFromApiResponse, getApiErrorMessage } from '../../utils/apiError';
 import { notifyApiFailure } from '../../utils/notify';
+import { getAccessToken } from "../../utils/authSession";
 
 const API_BASE_URL = "/api/leave";
 
@@ -179,7 +180,7 @@ export const Wfh = () => {
   const isFormValid = form.from !== '' && form.to !== '' && form.reason.trim().length > 0;
 
   const fetchWfhRequests = async () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setLoading(false);
       return;
@@ -227,7 +228,7 @@ export const Wfh = () => {
       return;
     }
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setToast({ show: true, message: 'Please log in to submit WFH request', type: 'error' });
       return;
@@ -281,7 +282,7 @@ export const Wfh = () => {
     if (!req?.id || req.status !== 'Pending') return;
     if (!window.confirm('Cancel this pending WFH request?')) return;
 
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setToast({ show: true, message: 'Please log in to cancel WFH request', type: 'error' });
       return;

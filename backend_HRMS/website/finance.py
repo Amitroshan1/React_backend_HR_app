@@ -41,6 +41,10 @@ def _finance_guard():
         return jsonify({"success": False, "message": "Unauthorized"}), 401
     claims = get_jwt() or {}
     if can_access_finance_panel(claims):
+        from .kyb_gates import finance_path_needs_kyb, kyb_forbidden_response, tenant_kyb_allows_statutory
+
+        if finance_path_needs_kyb(request.path or "") and not tenant_kyb_allows_statutory():
+            return kyb_forbidden_response()
         return None
     from .plan_features import has_feature, is_finance_role, is_org_admin
 
@@ -154,15 +158,13 @@ def finance_summary():
         PaySlip.admin_id.in_(tenant_admin_ids()),
     ).count()
 
-    gross, net, payroll_rows = db.session.query(
-        func.coalesce(func.sum(MonthlyPayroll.gross_salary_for_month), 0),
-        func.coalesce(func.sum(MonthlyPayroll.net_salary_final), 0),
-        func.count(MonthlyPayroll.id),
-    ).filter(
-        MonthlyPayroll.admin_id.in_(tenant_admin_ids()),
-        MonthlyPayroll.month_num == month_num,
-        MonthlyPayroll.year == year,
-    ).one()
+    from .payroll_finance_facts import month_department_totals
+    from .tenant_context import get_current_tenant_id
+
+    dept_rows = month_department_totals(get_current_tenant_id(), year, month_num)
+    payroll_rows = sum(int(d.get("employees") or 0) for d in dept_rows)
+    gross = sum(float(d.get("gross") or 0) for d in dept_rows)
+    net = sum(float(d.get("net") or 0) for d in dept_rows)
 
     approved_claims = (
         ExpenseClaimHeader.query.filter(ExpenseClaimHeader.admin_id.in_(tenant_admin_ids())).all()
@@ -259,22 +261,16 @@ def finance_payroll():
     now = datetime.now()
     year = str(now.year)
     month_num = now.month
-    rows = (
-        MonthlyPayroll.query.join(Admin, MonthlyPayroll.admin_id == Admin.id)
-        .filter(
-            admin_tenant_clause(),
-            MonthlyPayroll.month_num == month_num,
-            MonthlyPayroll.year == year,
-        )
-        .all()
-    )
+    from .payroll_finance_facts import month_department_totals
+    from .tenant_context import get_current_tenant_id
+
     grouped = {}
-    for row in rows:
-        dept = (row.admin.emp_type if row.admin else None) or "Not assigned"
+    for item in month_department_totals(get_current_tenant_id(), year, month_num):
+        dept = item.get("department") or "Not assigned"
         bucket = grouped.setdefault(dept, {"department": dept, "employees": 0, "gross": 0.0, "net": 0.0})
-        bucket["employees"] += 1
-        bucket["gross"] += float(row.gross_salary_for_month or 0)
-        bucket["net"] += float(row.net_salary_final or 0)
+        bucket["employees"] += int(item.get("employees") or 0)
+        bucket["gross"] += float(item.get("gross") or 0)
+        bucket["net"] += float(item.get("net") or 0)
     data = []
     for item in grouped.values():
         item["gross"] = _rupee(item["gross"])

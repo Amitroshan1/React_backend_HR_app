@@ -63,6 +63,9 @@ def unread_count():
 
     total = Notification.query.filter_by(recipient_admin_id=admin.id, is_read=False).count()
     query_count = count_department_query_unread(admin.id, emp_type)
+    kyb_count = Notification.query.filter_by(
+        recipient_admin_id=admin.id, is_read=False, notif_type="tenant_kyb"
+    ).count()
 
     return jsonify(
         {
@@ -70,6 +73,7 @@ def unread_count():
             "unread_count": total,
             "query_unread_count": query_count,
             "query_new_count": query_count,
+            "kyb_unread_count": kyb_count,
         }
     ), 200
 

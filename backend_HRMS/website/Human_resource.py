@@ -79,7 +79,6 @@ from .models.attendance import (
     LeaveBalance,
     Location,
     WorkFromHomeApplication,
-    AttendanceRegularization,
     LEAVE_REASON_MAX_LEN,
 )
 from .models.news_feed import NewsFeed
@@ -114,6 +113,7 @@ from .leave_attendence import (
     _compute_working_and_sandwich_days,
     _has_optional_leave_for_year,
     _optional_holiday_on_date,
+    calendar_block_for_leave_type,
 )
 from . import leave_settings as leave_cfg
 from .models.monthly_payroll import MonthlyPayroll
@@ -150,6 +150,8 @@ def _hr_plan_guard():
     if "/assessment/public" in path:
         return None
     if "/ats/public/offer" in path:
+        return None
+    if "/ex-employee-documents/public" in path:
         return None
     # Employee self-service endpoints that live on this blueprint
     if "/holidays/user" in path:
@@ -4232,6 +4234,16 @@ def _compute_leave_projection(*, admin, leave_balance, leave_type, start_date, e
     if not leave_type:
         return None, "leave_type is required."
 
+    calendar_err = calendar_block_for_leave_type(
+        emp_type=getattr(admin, "emp_type", None) or "",
+        start_date=start_date,
+        end_date=end_date,
+        leave_type=leave_type,
+        tenant_id=tenant_id_for_admin(admin),
+    )
+    if calendar_err:
+        return None, calendar_err
+
     working_days, sandwich_days = _compute_working_and_sandwich_days(
         emp_type=getattr(admin, "emp_type", None) or "",
         start_date=start_date,
@@ -4474,6 +4486,11 @@ def _validate_hr_on_behalf_dates(admin_id, start_date, end_date, *, today_ist=No
     backdate_err = _hr_backdate_limit_error(start_date, today_ist=today_ist)
     if backdate_err:
         return backdate_err
+    year_err = leave_cfg.leave_beyond_current_year_message(
+        start_date, end_date, today=today_ist
+    )
+    if year_err:
+        return year_err
     payroll_err = _payroll_lock_error_for_leave_range(admin_id, start_date, end_date)
     if payroll_err:
         return payroll_err
@@ -5027,165 +5044,25 @@ def _hr_create_leave_on_behalf(
     }, 201
 
 
-def _serialize_regularization_row(row):
-    admin = row.admin
-    reviewer = row.reviewed_by
-    return {
-        "id": row.id,
-        "admin_id": row.admin_id,
-        "employee_name": admin.first_name if admin else None,
-        "employee_email": admin.email if admin else None,
-        "emp_id": admin.emp_id if admin else None,
-        "circle": admin.circle if admin else None,
-        "emp_type": admin.emp_type if admin else None,
-        "leave_type": row.leave_type,
-        "start_date": row.start_date.isoformat() if row.start_date else None,
-        "end_date": row.end_date.isoformat() if row.end_date else None,
-        "reason": row.reason,
-        "status": row.status,
-        "hr_comment": row.hr_comment,
-        "leave_application_id": row.leave_application_id,
-        "reviewed_by_name": reviewer.first_name if reviewer else None,
-        "created_at": isoformat_api(row.created_at),
-        "reviewed_at": isoformat_api(row.reviewed_at) if row.reviewed_at else None,
-    }
+def _regularization_retired():
+    return jsonify({
+        "success": False,
+        "message": "Leave regularization is no longer used. Raise a query to HR; HR can adjust leave from Leave requests (admin).",
+    }), 410
 
 
 @hr.route("/leave-updation/regularizations", methods=["GET"])
 @jwt_required()
 @hr_required
 def list_attendance_regularizations():
-    status = (request.args.get("status") or "all").strip().lower()
-    circle = (request.args.get("circle") or "").strip()
-    emp_type = (request.args.get("emp_type") or "").strip()
-
-    q = AttendanceRegularization.query.join(
-        Admin, AttendanceRegularization.admin_id == Admin.id
-    ).filter(admin_tenant_clause())
-    if status != "all":
-        q = q.filter(db.func.lower(AttendanceRegularization.status) == status)
-    if circle:
-        q = q.filter(Admin.circle == circle)
-    if emp_type:
-        q = q.filter(Admin.emp_type == emp_type)
-
-    rows = (
-        q.order_by(AttendanceRegularization.created_at.desc(), AttendanceRegularization.id.desc())
-        .limit(500)
-        .all()
-    )
-    return jsonify({
-        "success": True,
-        "requests": [_serialize_regularization_row(r) for r in rows],
-    }), 200
+    return _regularization_retired()
 
 
-@hr.route("/leave-updation/regularizations/<int:reg_id>", methods=["PATCH"])
+@hr.route("/leave-updation/regularizations/<int:reg_id>", methods=["GET", "PATCH"])
 @jwt_required()
 @hr_required
 def review_attendance_regularization(reg_id):
-    row = AttendanceRegularization.query.get(reg_id)
-    if not row or not admin_id_in_tenant(row.admin_id):
-        return jsonify({"success": False, "message": "Regularization request not found"}), 404
-    if (row.status or "") != "Pending":
-        return jsonify({"success": False, "message": "Only pending requests can be reviewed"}), 409
-
-    payload = request.get_json(silent=True) or {}
-    action = (payload.get("action") or payload.get("status") or "").strip().lower()
-    if action in ("approve", "approved"):
-        next_status = "Approved"
-    elif action in ("reject", "rejected"):
-        next_status = "Rejected"
-    else:
-        return jsonify({"success": False, "message": "action must be approve or reject"}), 400
-
-    hr_comment = (payload.get("hr_comment") or payload.get("comment") or "").strip()
-    hr_email = (get_jwt() or {}).get("email")
-    hr_admin = current_admin()
-
-    if next_status == "Rejected":
-        row.status = "Rejected"
-        row.hr_comment = hr_comment or None
-        row.reviewed_by_admin_id = hr_admin.id if hr_admin else None
-        row.reviewed_at = utc_now()
-        try:
-            db.session.commit()
-        except Exception as exc:
-            db.session.rollback()
-            return jsonify({"success": False, "message": str(exc)}), 500
-        return jsonify({
-            "success": True,
-            "message": "Regularization request rejected.",
-            "request": _serialize_regularization_row(row),
-        }), 200
-
-    policy_err = _validate_hr_on_behalf_dates(row.admin_id, row.start_date, row.end_date)
-    if policy_err:
-        return jsonify({"success": False, "message": policy_err}), 400
-
-    reason = f"[Regularization] {row.reason}"
-    if hr_comment:
-        reason = f"{reason} | HR: {hr_comment}"
-
-    try:
-        leave_obj, leave_balance, projection = create_proxy_leave_application(
-            admin_id=row.admin_id,
-            leave_type=row.leave_type,
-            start_date=row.start_date,
-            end_date=row.end_date,
-            reason=reason[:255],
-            status="Approved",
-            applied_by_admin_id=hr_admin.id if hr_admin else None,
-            applied_on_behalf=False,
-        )
-        row.status = "Approved"
-        row.hr_comment = hr_comment or None
-        row.leave_application_id = leave_obj.id
-        row.reviewed_by_admin_id = hr_admin.id if hr_admin else None
-        row.reviewed_at = utc_now()
-        db.session.commit()
-    except LeaveProxyError as exc:
-        db.session.rollback()
-        return jsonify({"success": False, "message": exc.message}), exc.status_code
-    except Exception as exc:
-        db.session.rollback()
-        current_app.logger.error("regularization approve failed: %s", exc, exc_info=True)
-        return jsonify({"success": False, "message": str(exc) or "Failed to approve regularization"}), 500
-
-    try:
-        send_hr_leave_updation_email(
-            leave_obj=leave_obj,
-            hr_admin=hr_admin,
-            old_data={
-                "status": "—",
-                "leave_type": "—",
-                "start_date": "—",
-                "end_date": "—",
-                "deducted_days": 0,
-                "extra_days": 0,
-                "reason": "—",
-            },
-            adjustment_data={
-                "paid_adjustment": projection["deducted_days"],
-                "lwp_adjustment": projection["extra_days"],
-                "reversal_applied": False,
-            },
-            balance_after={
-                "pl": _round_leave_value(leave_balance.privilege_leave_balance),
-                "cl": _round_leave_value(leave_balance.casual_leave_balance),
-                "comp": _round_leave_value(get_effective_comp_balance(row.admin_id)),
-            },
-            created_on_behalf=True,
-        )
-    except Exception:
-        current_app.logger.warning("regularization approval email failed reg_id=%s", row.id)
-
-    return jsonify({
-        "success": True,
-        "message": "Regularization approved and leave recorded.",
-        "request": _serialize_regularization_row(row),
-        "leave_id": leave_obj.id,
-    }), 200
+    return _regularization_retired()
 
 
 @hr.route("/leave-updation/proxy-report", methods=["GET"])

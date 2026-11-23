@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './AdminList.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const STATUSES = ['Pending', 'Approved', 'Rejected', 'All'];
 
@@ -35,7 +36,7 @@ export default function EmployeeChangeRequests({
   const [message, setMessage] = useState('');
 
   const load = () => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (!token) {
       setLoading(false);
       return;
@@ -73,7 +74,7 @@ export default function EmployeeChangeRequests({
 
   const decide = async (decision) => {
     if (!selected) return;
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     setBusy(true);
     setMessage('');
     try {

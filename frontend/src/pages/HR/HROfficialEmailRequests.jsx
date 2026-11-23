@@ -4,11 +4,12 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './offboarding-ui.css';
 import './HROfficialEmailRequests.css';
+import { getAccessToken } from "../../utils/authSession";
 
 const HR_API_BASE = '/api/HumanResource';
 
 function authHeaders(json = false) {
-  const token = localStorage.getItem('token');
+  const token = getAccessToken();
   return {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(json ? { 'Content-Type': 'application/json' } : {}),

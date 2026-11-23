@@ -2,6 +2,7 @@
 import importlib
 import pkgutil
 from unittest.mock import patch
+from urllib.parse import unquote
 
 import pytest
 from flask import Flask, jsonify
@@ -29,6 +30,23 @@ from website.tenant_context import (  # noqa: E402
 )
 
 OTP_CODE = "123456"
+
+
+def _access_jwt_from_response(res):
+    body = res.get_json() or {}
+    if body.get("token"):
+        return body["token"]
+    found = []
+    for header in res.headers.getlist("Set-Cookie"):
+        part = header.split(";", 1)[0]
+        if "=" not in part:
+            continue
+        _name, value = part.split("=", 1)
+        raw = unquote(value.strip().strip('"'))
+        if raw.count(".") == 2 and len(raw) > 20:
+            found.append(raw)
+    assert found, res.headers.getlist("Set-Cookie")
+    return found[0]
 
 
 @pytest.fixture()
@@ -173,8 +191,9 @@ def test_picker_hides_suspended_company(app):
     body = res.get_json()
     assert res.status_code == 200, body
     assert "requires_tenant_selection" not in body
+    jwt = _access_jwt_from_response(res)
     with app.app_context():
-        assert decode_token(body["token"])["tenant_id"] == 1
+        assert decode_token(jwt)["tenant_id"] == 1
 
 
 def test_select_tenant_rejects_suspended_company(app):
