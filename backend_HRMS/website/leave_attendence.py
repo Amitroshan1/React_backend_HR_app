@@ -12,7 +12,8 @@ from .models.Admin_models import Admin
 from .tenant_context import current_admin, tenant_id_for_admin, tenant_scope, tenant_admin_ids
 from .models.seperation import Resignation, Noc_Upload, NocDepartmentRequest, NocApplicationRequest
 from .models.holiday_calendar import HolidayCalendar
-from .master_data_tenancy import holiday_query
+from .master_data_tenancy import holiday_query, holiday_scope_clause
+from .circle_transfer_utils import circle_on_date
 from .models.manager_model import ManagerContact
 from sqlalchemy import or_, func
 from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_resignation_revoked_email,send_leave_applied_email,send_noc_request_email,send_noc_application_department_email
@@ -56,31 +57,34 @@ def _is_weekend_non_working_for_emp(emp_type: str, d: date) -> bool:
     return False
 
 
-def _load_holiday_sets(year: int, start_date: date, end_date: date, tenant_id=None):
-    from .cache import active_holidays_for_year, holiday_as_date
+def _load_holiday_sets(year: int, start_date: date, end_date: date, tenant_id=None, circle=None):
+    from .cache import holiday_as_date
+    from .holiday_resolver import observed_holidays_for_year
     from .tenant_context import get_current_tenant_id
 
     tid = tenant_id if tenant_id is not None else get_current_tenant_id()
     dates = []
-    for row in active_holidays_for_year(tid, year):
-        d = holiday_as_date(row.get("holiday_date"))
-        if d is None or d < start_date or d > end_date:
-            continue
-        dates.append((d, bool(row.get("is_optional"))))
+    for y in range(start_date.year, end_date.year + 1):
+        for row in observed_holidays_for_year(tid, y, circle):
+            d = holiday_as_date(row.get("holiday_date"))
+            if d is None or d < start_date or d > end_date:
+                continue
+            dates.append((d, bool(row.get("is_optional"))))
     mandatory = {d for d, optional in dates if not optional}
     optional = {d for d, opt in dates if opt}
     return mandatory, optional
 
 
-def _holiday_entries(start_date: date, end_date: date, tenant_id=None) -> dict:
+def _holiday_entries(start_date: date, end_date: date, tenant_id=None, circle=None) -> dict:
     """holiday_date -> {name, is_optional} for the inclusive range (covers year boundaries)."""
-    from .cache import active_holidays_for_year, holiday_as_date
+    from .cache import holiday_as_date
+    from .holiday_resolver import observed_holidays_for_year
     from .tenant_context import get_current_tenant_id
 
     tid = tenant_id if tenant_id is not None else get_current_tenant_id()
     out = {}
     for year in range(start_date.year, end_date.year + 1):
-        for row in active_holidays_for_year(tid, year):
+        for row in observed_holidays_for_year(tid, year, circle):
             d = holiday_as_date(row.get("holiday_date"))
             if d is None or d < start_date or d > end_date:
                 continue
@@ -96,6 +100,7 @@ def calendar_block_for_leave_type(
     end_date: date,
     leave_type: str,
     tenant_id=None,
+    circle=None,
 ):
     """Reject PL/CL/half-day/comp-off on public holidays or ranges with no working days.
 
@@ -109,12 +114,13 @@ def calendar_block_for_leave_type(
     if end_date < start_date:
         return None
 
-    holidays = _holiday_entries(start_date, end_date, tenant_id)
+    holidays = _holiday_entries(start_date, end_date, tenant_id, circle=circle)
     working_days, _sandwich = _compute_working_and_sandwich_days(
         emp_type=emp_type or "",
         start_date=start_date,
         end_date=end_date,
         tenant_id=tenant_id,
+        circle=circle,
     )
 
     def _fmt(d: date) -> str:
@@ -169,34 +175,30 @@ def _parse_leave_year(value):
     return year
 
 
-def _fetch_optional_holiday_rows(year: int, tenant_id=None):
-    rows = (
-        holiday_query(tenant_id).filter(
-            HolidayCalendar.year == year,
-            HolidayCalendar.is_active.is_(True),
-            HolidayCalendar.is_optional.is_(True),
-        )
-        .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
-        .all()
-    )
-    if not rows:
-        from .Human_resource import _seed_holidays_for_year
+def _fetch_optional_holiday_rows(year: int, tenant_id=None, circle=None):
+    from .cache import holiday_namespace
+    from .holiday_resolver import observed_holidays_for_year
+    from .Human_resource import _seed_holidays_for_year
+    from .tenant_context import get_current_tenant_id
 
-        _seed_holidays_for_year(year, overwrite=False, tenant_id=tenant_id)
-        rows = (
-            holiday_query(tenant_id).filter(
-                HolidayCalendar.year == year,
-                HolidayCalendar.is_active.is_(True),
-                HolidayCalendar.is_optional.is_(True),
-            )
-            .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
-            .all()
-        )
+    tid = tenant_id if tenant_id is not None else get_current_tenant_id()
+    payloads = observed_holidays_for_year(tid, year, circle)
+    optionals = [p for p in payloads if p.get("is_optional")]
+    if not optionals:
+        _seed_holidays_for_year(year, overwrite=False, tenant_id=tid)
+        payloads = observed_holidays_for_year(tid, year, circle)
+        optionals = [p for p in payloads if p.get("is_optional")]
+    rows = []
+    for payload in optionals:
+        h = holiday_namespace(payload)
+        if h is not None:
+            rows.append(h)
+    rows.sort(key=lambda r: (r.holiday_date or date.min, getattr(r, "id", 0) or 0))
     return rows
 
 
-def _optional_holiday_on_date(d: date, tenant_id=None):
-    for row in _fetch_optional_holiday_rows(d.year, tenant_id):
+def _optional_holiday_on_date(d: date, tenant_id=None, circle=None):
+    for row in _fetch_optional_holiday_rows(d.year, tenant_id, circle=circle):
         if row.holiday_date == d:
             return row
     return None
@@ -228,7 +230,7 @@ def _has_optional_leave_for_year(admin_id: int, year: int) -> bool:
     return existing is not None
 
 
-def _compute_leave_days_with_sandwich(*, emp_type: str, start_date: date, end_date: date, tenant_id=None) -> float:
+def _compute_leave_days_with_sandwich(*, emp_type: str, start_date: date, end_date: date, tenant_id=None, circle=None) -> float:
     """
     Sandwich leave policy:
     - Count all calendar WORKING days within the range as leave days.
@@ -238,7 +240,9 @@ def _compute_leave_days_with_sandwich(*, emp_type: str, start_date: date, end_da
     if end_date < start_date:
         return 0.0
 
-    mandatory_holidays, optional_holidays = _load_holiday_sets(start_date.year, start_date, end_date, tenant_id)
+    mandatory_holidays, optional_holidays = _load_holiday_sets(
+        start_date.year, start_date, end_date, tenant_id, circle=circle
+    )
 
     def _is_non_working(d: date) -> bool:
         # Treat both mandatory and optional holidays as non-working for sandwich computation
@@ -272,7 +276,7 @@ def _compute_leave_days_with_sandwich(*, emp_type: str, start_date: date, end_da
     return float(len(counted))
 
 
-def _compute_working_and_sandwich_days(*, emp_type: str, start_date: date, end_date: date, tenant_id=None):
+def _compute_working_and_sandwich_days(*, emp_type: str, start_date: date, end_date: date, tenant_id=None, circle=None):
     """
     Return (working_days, sandwich_days).
     - working_days: days that are calendar working days for this emp_type (holidays + weekends excluded)
@@ -281,7 +285,9 @@ def _compute_working_and_sandwich_days(*, emp_type: str, start_date: date, end_d
     if end_date < start_date:
         return 0.0, 0.0
 
-    mandatory_holidays, optional_holidays = _load_holiday_sets(start_date.year, start_date, end_date, tenant_id)
+    mandatory_holidays, optional_holidays = _load_holiday_sets(
+        start_date.year, start_date, end_date, tenant_id, circle=circle
+    )
 
     def _is_non_working(d: date) -> bool:
         if d in mandatory_holidays or d in optional_holidays:
@@ -715,7 +721,9 @@ def list_optional_holidays_for_leave():
         }), 400
 
     optional_leave_used = _has_optional_leave_for_year(admin.id, year)
-    rows = _fetch_optional_holiday_rows(year, tenant_id_for_admin(admin))
+    rows = _fetch_optional_holiday_rows(
+        year, tenant_id_for_admin(admin), circle=circle_on_date(admin, date.today())
+    )
     today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
 
     return jsonify({
@@ -845,7 +853,9 @@ def apply_leave_api():
                 "message": "Optional Leave can only be applied for one day"
             }), 400
 
-        if not _optional_holiday_on_date(start_date, tenant_id_for_admin(admin)):
+        if not _optional_holiday_on_date(
+            start_date, tenant_id_for_admin(admin), circle=circle_on_date(admin, start_date)
+        ):
             return jsonify({
                 "success": False,
                 "message": "Selected date is not an optional holiday in the company calendar"
@@ -857,6 +867,7 @@ def apply_leave_api():
         end_date=end_date,
         leave_type=leave_type,
         tenant_id=tenant_id_for_admin(admin),
+        circle=circle_on_date(admin, start_date),
     )
     if calendar_err:
         return jsonify({"success": False, "message": calendar_err}), 400
@@ -916,6 +927,7 @@ def apply_leave_api():
         start_date=start_date,
         end_date=end_date,
         tenant_id=tenant_id_for_admin(admin),
+        circle=circle_on_date(admin, start_date),
     )
     leave_days = float(working_days) + float(sandwich_days)
     deducted_days = 0.0

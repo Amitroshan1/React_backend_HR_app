@@ -9,7 +9,7 @@ import { isPlatformSuperAdmin } from '../../utils/planFeatures';
 import './AdminLayout.css';
 import { getAccessToken, hasSignedInHint } from "../../utils/authSession";
 
-const PLATFORM_ONLY = ['/admin/crm', '/admin/customers', '/admin/customers/register', '/admin/analytics'];
+const PLATFORM_ONLY = ['/admin/crm', '/admin/customers', '/admin/customers/register', '/admin/analytics', '/admin/kyb'];
 
 /** Platform-admin shell. Navigation is the sidebar; the top bar is only the mobile menu. */
 export default function AdminLayout() {
@@ -60,7 +60,9 @@ export default function AdminLayout() {
           </button>
         </header>
         <div className="admin-platform__content">
-          {PLATFORM_ONLY.includes(path) && !platform && !isPlatformSuperAdmin(user) ? (
+          {(PLATFORM_ONLY.includes(path) || path.startsWith('/admin/customers/')) &&
+          !platform &&
+          !isPlatformSuperAdmin(user) ? (
             <Navigate to="/admin" replace />
           ) : (
             <Outlet />

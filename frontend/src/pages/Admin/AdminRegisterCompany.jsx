@@ -4,7 +4,6 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './AdminCustomers.css';
 import CountryField from './CountryField';
 import { canManageCustomerRegistry } from './customerRegistryAccess';
-import { emptyMailboxes, mailboxFieldsForPlan } from './mailboxPlan';
 import { getAccessToken } from "../../utils/authSession";
 
 const API_CUSTOMERS = '/api/admin/customers';
@@ -21,12 +20,10 @@ const FALLBACK_STATUSES = [
 ];
 
 const emptyForm = () => ({
-  ...emptyMailboxes(),
   company_name: '',
   slug: '',
   plan: 'essential',
   status: 'active',
-  contact_email: '',
   country: '',
   go_live_date: '',
   notes: '',
@@ -34,6 +31,7 @@ const emptyForm = () => ({
   admin_name: '',
   admin_mobile: '',
   send_kyb_invite: true,
+  kyb_different_inbox: false,
   kyb_email: '',
 });
 
@@ -113,15 +111,16 @@ export default function AdminRegisterCompany() {
       setError('Company name is required');
       return;
     }
-    if (!form.admin_email.trim()) {
+    const adminEmail = form.admin_email.trim().toLowerCase();
+    if (!adminEmail || !adminEmail.includes('@')) {
       setError('First admin email is required so the company can sign in');
       return;
     }
-    const kybRecipient = (
-      form.kyb_email.trim() || form.contact_email.trim() || form.admin_email.trim()
-    );
+    const kybRecipient = form.send_kyb_invite && form.kyb_different_inbox
+      ? form.kyb_email.trim().toLowerCase()
+      : adminEmail;
     if (form.send_kyb_invite && (!kybRecipient || !kybRecipient.includes('@'))) {
-      setError('Enter a real onboarding recipient email. The grey example (ops@acme.com) is only a placeholder.');
+      setError('Enter the inbox that should receive the verification link.');
       return;
     }
     setSaving(true);
@@ -134,20 +133,14 @@ export default function AdminRegisterCompany() {
         status: form.send_kyb_invite ? 'provisioning' : (form.status || 'active'),
         send_kyb_invite: Boolean(form.send_kyb_invite),
         skip_kyb: !form.send_kyb_invite,
-        kyb_email: kybRecipient || undefined,
-        contact_email: form.contact_email.trim() || undefined,
+        kyb_email: form.send_kyb_invite ? kybRecipient : undefined,
+        contact_email: adminEmail,
         country: form.country.trim(),
         go_live_date: form.go_live_date || undefined,
         notes: form.notes.trim() || undefined,
-        admin_email: form.admin_email.trim(),
+        admin_email: adminEmail,
         admin_name: form.admin_name.trim() || undefined,
         admin_mobile: form.admin_mobile.trim() || undefined,
-        mailbox_hr: form.mailbox_hr.trim() || undefined,
-        mailbox_accounts: form.mailbox_accounts.trim() || undefined,
-        mailbox_it: form.mailbox_it.trim() || undefined,
-        mailbox_inventory: form.mailbox_inventory.trim() || undefined,
-        mailbox_admin: form.mailbox_admin.trim() || undefined,
-        mailbox_finance: form.mailbox_finance.trim() || undefined,
       };
       const res = await fetch(API_CUSTOMERS, {
         method: 'POST',
@@ -235,6 +228,7 @@ export default function AdminRegisterCompany() {
                     ))}
                   </select>
                 </label>
+                {!form.send_kyb_invite ? (
                 <label className="cust-field">
                   Initial status
                   <select
@@ -250,23 +244,7 @@ export default function AdminRegisterCompany() {
                       ))}
                   </select>
                 </label>
-                <label className="cust-field">
-                  Contact email
-                  <input
-                    type="email"
-                    value={form.contact_email}
-                    onChange={(event) =>
-                      setForm((current) => {
-                        const contact_email = event.target.value;
-                        const kyb_email = current.kyb_email.trim()
-                          ? current.kyb_email
-                          : contact_email;
-                        return { ...current, contact_email, kyb_email };
-                      })
-                    }
-                    placeholder="ops@acme.com"
-                  />
-                </label>
+                ) : null}
                 <label className="cust-field">
                   Go-live date
                   <input
@@ -285,48 +263,11 @@ export default function AdminRegisterCompany() {
               </div>
             </section>
 
-            <section className="cust-form-section">
-              <h3 className="cust-form-section__title">Company verification (KYB)</h3>
-              <p className="cust-form-section__hint">
-                Customer gets a private link to confirm company name, contact, country, legal details, and
-                upload incorporation / GST / PAN proofs. Plan and slug stay as you set them. The company
-                stays in provisioning until you approve after they submit.
-              </p>
-              <label className="cust-field cust-field--full">
-                <input
-                  type="checkbox"
-                  checked={form.send_kyb_invite}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, send_kyb_invite: event.target.checked }))
-                  }
-                />
-                {' '}Send onboarding / document link
-              </label>
-              {form.send_kyb_invite ? (
-                <label className="cust-field cust-field--full">
-                  Link recipient email
-                  <input
-                    type="email"
-                    value={form.kyb_email}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, kyb_email: event.target.value }))
-                    }
-                    placeholder="Type the recipient inbox (not the example)"
-                    required={form.send_kyb_invite}
-                  />
-                  <span className="cust-field__hint">
-                    Mail goes only to this address. Fill it — the example text is not sent.
-                  </span>
-                </label>
-              ) : (
-                <p className="cust-field__hint">Skip only for internal/demo companies you already know.</p>
-              )}
-            </section>
-
             <section className="cust-form-section cust-form-section--accent">
               <h3 className="cust-form-section__title">First company admin *</h3>
               <p className="cust-form-section__hint">
-                Seeds the company Admin for this tenant. They sign in on the same login page with OTP. They cannot use Super Admin.
+                This address is used for login, company contact, and the KYB link unless you send KYB to a different inbox.
+                They sign in on the same login page with OTP. They cannot use Super Admin.
               </p>
               <div className="cust-form-section__grid">
                 <label className="cust-field cust-field--full">
@@ -335,16 +276,10 @@ export default function AdminRegisterCompany() {
                     type="email"
                     value={form.admin_email}
                     onChange={(event) =>
-                      setForm((current) => {
-                        const admin_email = event.target.value;
-                        const kyb_email = current.kyb_email.trim()
-                          ? current.kyb_email
-                          : (current.contact_email.trim() || admin_email);
-                        return { ...current, admin_email, kyb_email };
-                      })
+                      setForm((current) => ({ ...current, admin_email: event.target.value }))
                     }
                     required
-                    placeholder="admin@acme.com"
+                    placeholder="person@company.com"
                   />
                 </label>
                 <label className="cust-field">
@@ -354,7 +289,7 @@ export default function AdminRegisterCompany() {
                     onChange={(event) =>
                       setForm((current) => ({ ...current, admin_name: event.target.value }))
                     }
-                    placeholder="Acme Admin"
+                    placeholder="Full name"
                   />
                 </label>
                 <label className="cust-field">
@@ -371,27 +306,64 @@ export default function AdminRegisterCompany() {
               </div>
             </section>
 
-            <fieldset className="cust-fieldset">
-              <legend>Company mailboxes</legend>
-              <p className="cust-fieldset__hint">
-                Optional. HRMS emails for this company go to (or CC) these addresses.
+            <section className="cust-form-section">
+              <h3 className="cust-form-section__title">Company verification (KYB)</h3>
+              <p className="cust-form-section__hint">
+                Customer gets a private link to confirm company name, contact, country, legal details, and
+                upload incorporation / GST / PAN proofs. Plan and slug stay as you set them. The company
+                stays in provisioning until you approve after they submit.
               </p>
-              <div className="cust-fieldset__grid">
-                {mailboxFieldsForPlan(form.plan).map((field) => (
-                  <label key={field.key}>
-                    {field.label}
+              <label className="cust-field cust-field--full">
+                <input
+                  type="checkbox"
+                  checked={form.send_kyb_invite}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      send_kyb_invite: event.target.checked,
+                      kyb_different_inbox: event.target.checked ? current.kyb_different_inbox : false,
+                    }))
+                  }
+                />
+                {' '}Send onboarding / document link
+              </label>
+              {form.send_kyb_invite ? (
+                <>
+                  <p className="cust-field__hint">
+                    The link is emailed to {form.admin_email.trim() || 'the admin email'} unless you choose a different inbox.
+                  </p>
+                  <label className="cust-field cust-field--full">
                     <input
-                      type="email"
-                      value={form[field.key] || ''}
+                      type="checkbox"
+                      checked={form.kyb_different_inbox}
                       onChange={(event) =>
-                        setForm((current) => ({ ...current, [field.key]: event.target.value }))
+                        setForm((current) => ({
+                          ...current,
+                          kyb_different_inbox: event.target.checked,
+                        }))
                       }
-                      placeholder={field.placeholder}
                     />
+                    {' '}Send KYB to a different inbox
                   </label>
-                ))}
-              </div>
-            </fieldset>
+                  {form.kyb_different_inbox ? (
+                    <label className="cust-field cust-field--full">
+                      KYB recipient email
+                      <input
+                        type="email"
+                        value={form.kyb_email}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, kyb_email: event.target.value }))
+                        }
+                        placeholder="person@company.com"
+                        required
+                      />
+                    </label>
+                  ) : null}
+                </>
+              ) : (
+                <p className="cust-field__hint">Skip only for internal/demo companies you already know.</p>
+              )}
+            </section>
 
             <label className="cust-field cust-field--full">
               Notes

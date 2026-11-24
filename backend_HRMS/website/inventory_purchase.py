@@ -20,7 +20,7 @@ from .manager_utils import (
 )
 from .company_mailbox import company_mailbox
 from .models.inventory_purchase_request import InventoryPurchaseRequest
-from .plan_features import can_access_finance_panel, can_access_it_panel, is_org_admin
+from .plan_features import can_access_finance_panel, can_access_it_or_inventory_panel, is_org_admin
 from .secure_file_service import build_signed_file_url
 from .tenant_context import current_admin, get_admin_in_tenant, get_current_tenant_id
 from .upload_tenancy import tenant_upload_path
@@ -218,7 +218,7 @@ def _notify_status(row, subject, intro, extra=None):
 
 def _can_it(admin):
     claims = get_jwt() or {}
-    return can_access_it_panel(claims) or is_org_admin(claims)
+    return can_access_it_or_inventory_panel(claims) or is_org_admin(claims)
 
 
 def _can_finance(admin):

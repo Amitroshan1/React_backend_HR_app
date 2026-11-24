@@ -7,6 +7,7 @@ import {
     canAccessAccountPanel,
     canAccessFinancePanel,
     canAccessItPanel,
+    canAccessInventoryPanel,
     canAccessHrPanel,
     canViewOwnAssignedAssets,
 } from "../../utils/planFeatures";
@@ -45,7 +46,7 @@ export const AppLayout = () => {
     useEffect(() => {
         if (!hasToken || loadingUser) return;
         const user = userData?.user;
-        if (!canAccessItPanel(user)) return;
+        if (!canAccessItPanel(user) && !canAccessInventoryPanel(user)) return;
         const token = getAccessToken();
         syncItamFlagsFromApi(token ? { Authorization: `Bearer ${token}` } : {});
     }, [hasToken, loadingUser, userData?.user]);
@@ -119,7 +120,14 @@ export const AppLayout = () => {
           : "";
         const canSelfAssetsView =
           isSelfAssetsPath && canViewOwnAssignedAssets(user, selfAssetsEmpId);
-        if (path.startsWith("/it") && !canAccessItPanel(user) && !canSelfAssetsView) {
+        const isInventoryArea = path.startsWith("/it/inventory");
+        const canItArea = canAccessItPanel(user);
+        const canInventoryArea = canAccessInventoryPanel(user);
+        if (isInventoryArea && !canInventoryArea) {
+            navigate("/dashboard", { replace: true });
+            return;
+        }
+        if (path.startsWith("/it") && !isInventoryArea && !canItArea && !canSelfAssetsView) {
             navigate("/dashboard", { replace: true });
             return;
         }

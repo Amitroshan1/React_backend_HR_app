@@ -91,6 +91,7 @@ FINANCE_DEPARTMENT_ALIASES = frozenset({
 IT_DEPARTMENT_ALIASES = frozenset({
     "it",
     "it department",
+    "information technology",
 })
 
 INVENTORY_DEPARTMENT_ALIASES = frozenset({
@@ -339,7 +340,18 @@ def is_it_role(claims: Optional[dict] = None) -> bool:
         except Exception:
             claims = {}
     emp_type = _norm_emp_type(claims.get("emp_type") or "")
-    return is_it_department(emp_type) or is_inventory_department(emp_type)
+    return is_it_department(emp_type)
+
+
+def is_inventory_role(claims: Optional[dict] = None) -> bool:
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+    emp_type = _norm_emp_type(claims.get("emp_type") or "")
+    return is_inventory_department(emp_type)
 
 
 def is_finance_role(claims: Optional[dict] = None) -> bool:
@@ -381,8 +393,18 @@ def _can_access_plan_panel(feature: str, role_fn, claims: Optional[dict] = None)
 
 
 def can_access_it_panel(claims: Optional[dict] = None) -> bool:
-    """IT / Inventory: plan must include it_panel, then IT role or company Admin."""
+    """IT module: plan must include it_panel, then IT role or company Admin."""
     return _can_access_plan_panel("it_panel", is_it_role, claims)
+
+
+def can_access_inventory_panel(claims: Optional[dict] = None) -> bool:
+    """Inventory module: same plan feature as IT, inventory emp type or company Admin."""
+    return _can_access_plan_panel("it_panel", is_inventory_role, claims)
+
+
+def can_access_it_or_inventory_panel(claims: Optional[dict] = None) -> bool:
+    """Shared /api/it stock APIs used by both modules."""
+    return can_access_it_panel(claims) or can_access_inventory_panel(claims)
 
 
 def can_access_finance_panel(claims: Optional[dict] = None) -> bool:

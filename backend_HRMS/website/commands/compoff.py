@@ -74,15 +74,16 @@ def _worked_public_holiday(punch):
     return punch.punch_in is not None and punch.punch_out is not None
 
 
-def _mandatory_holiday_dates(start_date, end_date, tenant_id=None):
-    """Active non-optional company holidays in [start_date, end_date]."""
-    from ..cache import active_holidays_for_year, holiday_as_date
+def _mandatory_holiday_dates(start_date, end_date, tenant_id=None, circle=None):
+    """Active non-optional observed holidays in [start_date, end_date]."""
+    from ..cache import holiday_as_date
+    from ..holiday_resolver import observed_holidays_for_year
     from ..tenant_context import get_current_tenant_id
 
     tid = tenant_id if tenant_id is not None else get_current_tenant_id()
     out = set()
     for year in range(start_date.year, end_date.year + 1):
-        for row in active_holidays_for_year(tid, year):
+        for row in observed_holidays_for_year(tid, year, circle):
             if row.get("is_optional"):
                 continue
             d = holiday_as_date(row.get("holiday_date"))
@@ -140,8 +141,6 @@ def run_compoff_process(run_date, tenant_id=None):
         db.func.coalesce(Admin.is_exited, False) == False,
     ).all()
     admin_ids = [a.id for a in admins]
-    holiday_dates = _mandatory_holiday_dates(start, today, tenant_id)
-
     punches = []
     if admin_ids:
         punches = Punch.query.filter(
@@ -151,18 +150,29 @@ def run_compoff_process(run_date, tenant_id=None):
         ).all()
     punch_map = {(p.admin_id, p.punch_date): p for p in punches}
 
+    from ..circle_transfer_utils import circle_on_date
+    from ..holiday_resolver import holiday_circle_norm
+
+    holiday_by_circle = {}
+
+    def _holidays_for_circle(circle_name):
+        key = holiday_circle_norm(circle_name).lower()
+        if key not in holiday_by_circle:
+            holiday_by_circle[key] = _mandatory_holiday_dates(start, today, tenant_id, circle_name)
+        return holiday_by_circle[key]
+
     for admin in admins:
         admin_id = admin.id
         for sunday in _sundays_in_range(start, today):
             if not _worked_sunday(punch_map.get((admin_id, sunday))):
                 continue
             _try_create_gain(admin_id, sunday, summary)
-        for holiday in sorted(holiday_dates):
-            if holiday.weekday() == 6:
-                continue
-            if not _worked_public_holiday(punch_map.get((admin_id, holiday))):
-                continue
-            _try_create_gain(admin_id, holiday, summary)
+        day = start
+        while day <= today:
+            if day.weekday() != 6 and day in _holidays_for_circle(circle_on_date(admin, day)):
+                if _worked_public_holiday(punch_map.get((admin_id, day))):
+                    _try_create_gain(admin_id, day, summary)
+            day += timedelta(days=1)
 
     # 2) Sync LeaveBalance.compensatory_leave_balance for all admins with comp_off_gains or leave_balance
     for admin in admins:

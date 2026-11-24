@@ -5,6 +5,7 @@ import {
   canAccessFinancePanel,
   canAccessHrPanel,
   canAccessItPanel,
+  canAccessInventoryPanel,
   canViewOwnAssignedAssets,
   hasFeature,
   isAdminUser,
@@ -26,6 +27,7 @@ const PANEL_CHECKS = {
   account: (user) => canAccessAccountPanel(user),
   finance: (user) => canAccessFinancePanel(user),
   it: (user) => canAccessItPanel(user),
+  inventory: (user) => canAccessInventoryPanel(user),
   admin: (user) => isAdminUser(user),
   manager: (user) => canAccessManagerPanel(user),
 };

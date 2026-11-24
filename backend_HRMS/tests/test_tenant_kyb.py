@@ -100,6 +100,26 @@ def test_register_send_kyb_invite(app):
     assert body["tenant"]["kyc_status"] == "invite_sent"
     assert body["kyb"]["email"] == "ops@kyb.com"
     assert "company-kyb?t=" in body["kyb"]["invite_url"]
+
+
+def test_register_kyb_defaults_to_admin_email(app):
+    client = app.test_client()
+    with patch("website.email.send_company_kyb_invite_email", return_value=(True, "ok")):
+        res = client.post(
+            "/api/admin/customers",
+            json={
+                "company_name": "Same Inbox Co",
+                "plan": "essential",
+                "admin_email": "lead@same.com",
+                "send_kyb_invite": True,
+            },
+            headers=_auth(app),
+        )
+    assert res.status_code == 201, res.get_json()
+    body = res.get_json()
+    assert body["kyb"]["email"] == "lead@same.com"
+    assert body["customer"]["contact_email"] == "lead@same.com"
+    assert body["tenant"]["contact_email"] == "lead@same.com"
     raw = body["kyb"]["invite_url"].split("t=", 1)[1]
     with app.app_context():
         row = TenantKybInvite.query.filter_by(tenant_id=body["tenant"]["id"]).one()
@@ -293,6 +313,8 @@ def test_kyb_notify_approve_and_block_manual_activate(app):
     listed = client.get("/api/admin/customers", headers=_auth(app)).get_json()
     row = next(c for c in listed["customers"] if c["id"] == cid)
     assert row["kyc_status"] == "submitted"
+    assert row["kyb_has_pack"] is True
+    assert row.get("kyb_submitted_at")
     blocked = client.patch(
         f"/api/admin/customers/{cid}",
         json={"status": "active"},

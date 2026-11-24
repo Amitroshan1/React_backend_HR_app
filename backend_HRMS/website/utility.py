@@ -198,12 +198,18 @@ def punch_work_override_context(admin_id, day, tenant_id=None):
         from .leave_attendence import _holiday_entries
         from .tenant_context import tenant_id_for_admin
         from .models.Admin_models import Admin
+        from .circle_transfer_utils import circle_on_date
 
         tid = tenant_id
-        if tid is None:
+        admin = None
+        try:
             admin = Admin.query.get(admin_id)
+        except Exception:
+            admin = None
+        if tid is None:
             tid = tenant_id_for_admin(admin) if admin else None
-        info = (_holiday_entries(day, day, tid) or {}).get(day)
+        circ = circle_on_date(admin, day) if admin else None
+        info = (_holiday_entries(day, day, tid, circle=circ) or {}).get(day)
     except Exception:
         info = None
     if info and not info.get("is_optional"):
@@ -872,12 +878,16 @@ def calculate_weekend_continuous_absence_penalty(admin_id: int, emp_type: str, y
     if end_date < start_date:
         return 0
 
-    # Holidays (needed for Optional Leave tracking)
-    from .cache import active_holidays_for_year, holiday_as_date
+    from .holiday_resolver import observed_holidays_for_year
+    from .cache import holiday_as_date
     from .master_data_tenancy import tenant_for_admin_id
+    from .models.Admin_models import Admin
+    from .circle_transfer_utils import circle_on_date
 
+    admin = Admin.query.get(admin_id)
     optional_holidays = set()
-    for row in active_holidays_for_year(tenant_for_admin_id(admin_id), year):
+    circ = circle_on_date(admin, start_date) if admin else ""
+    for row in observed_holidays_for_year(tenant_for_admin_id(admin_id), year, circ):
         if not row.get("is_optional"):
             continue
         d = holiday_as_date(row.get("holiday_date"))
@@ -1697,20 +1707,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     month_start = date(year, month, 1)
     month_end = date(year, month, num_days)
 
-    # Mandatory and optional holidays for this month (aligned with attendance calendar)
-    from .cache import active_holidays_for_year, holiday_namespace
-    from .tenant_context import tenant_id_for_admin
-
-    holiday_dates = {}
-    optional_holiday_dates = {}
-    for row in active_holidays_for_year(tenant_id_for_admin(admins[0]) if admins else None, year):
-        h = holiday_namespace(row)
-        if h is None or h.holiday_date < month_start or h.holiday_date > month_end:
-            continue
-        if h.is_optional:
-            optional_holiday_dates[h.holiday_date] = h
-        else:
-            holiday_dates[h.holiday_date] = h
+    from .holiday_resolver import holiday_map_for_admin_span
 
     # Single worksheet for all employees
     worksheet = workbook.add_worksheet("Attendance")
@@ -1832,6 +1829,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
 
         # Per-day rows, exactly one row per date, starting below the header row
         first_day_row = TABLE_HEADER_ROW + 1
+        emp_holidays = holiday_map_for_admin_span(admin, month_start, month_end)
         for day in range(1, num_days + 1):
             current = date(year, month, day)
             row = first_day_row + (day - 1)
@@ -1839,8 +1837,9 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
             emp_type = (admin.emp_type or "").strip()
             is_sunday = current.weekday() == 6
             is_weekend_off = is_weekend_non_working(current, emp_type)
-            is_mandatory_holiday = current in holiday_dates
-            is_optional_holiday = current in optional_holiday_dates
+            hday = emp_holidays.get(current)
+            is_mandatory_holiday = bool(hday) and not bool(getattr(hday, "is_optional", False))
+            is_optional_holiday = bool(hday) and bool(getattr(hday, "is_optional", False))
 
             # Only write the Day_Date once (for the first employee)
             if emp_index == 0:
@@ -1860,7 +1859,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
             base_fmt = sunday_row_fmt if is_sunday else border_fmt
 
             if is_mandatory_holiday:
-                holiday_name = holiday_dates[current].holiday_name
+                holiday_name = hday.holiday_name
                 has_holiday_punch = bool(punch and (punch.punch_in or punch.punch_out))
                 if has_holiday_punch:
                     _client_write_punch_row_cells(
@@ -1885,7 +1884,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                             worksheet, row, base_col, punch, legend_holiday_fmt, legend_holiday_fmt
                         )
                     else:
-                        opt_name = optional_holiday_dates[current].holiday_name or "Optional Holiday"
+                        opt_name = hday.holiday_name or "Optional Holiday"
                         worksheet.write(row, base_col, opt_name, legend_holiday_fmt)
                         worksheet.write(row, base_col + 1, "", legend_holiday_fmt)
                     continue

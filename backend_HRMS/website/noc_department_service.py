@@ -161,7 +161,7 @@ def _can_access_row(scope, approver, row):
     if scope == "inventory":
         if dk != "INVENTORY":
             return False
-        from .plan_features import can_access_it_panel, is_inventory_department, is_org_admin
+        from .plan_features import can_access_inventory_panel, is_inventory_department, is_org_admin
 
         claims = {}
         try:
@@ -170,7 +170,7 @@ def _can_access_row(scope, approver, row):
             claims = get_jwt() or {}
         except Exception:
             claims = {}
-        if can_access_it_panel(claims) or is_org_admin(claims):
+        if can_access_inventory_panel(claims) or is_org_admin(claims):
             return True
         return is_inventory_department(approver.emp_type or "")
     return False

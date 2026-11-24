@@ -2363,13 +2363,6 @@ export const Dashboard = () => {
                             <NavLink
                                 to="/holiday-calendar"
                                 className="action-card nav-link-card"
-                                onClick={(e) => {
-                                    if (userCircle !== 'NHQ') {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        alert('Holiday Calendar is only available for NHQ users.');
-                                    }
-                                }}
                             > 
                                 <div className="action-icon-group">
                                     <div className="action-icon sky"><div className="action-icon-inner"><FiCalendar /></div></div>

@@ -122,7 +122,7 @@ import { toast } from "react-toastify";
 import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
 import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt, FaFileAlt } from "react-icons/fa";
 import "./style/Headers.css";
-import { clearPlanContext, canAccessItPanel, canAccessHrPanel, canAccessAccountPanel, canAccessFinancePanel, isAdminUser, isCompanyAdmin, isPlatformSuperAdmin } from "../utils/planFeatures";
+import { clearPlanContext, canAccessItPanel, canAccessInventoryPanel, canAccessHrPanel, canAccessAccountPanel, canAccessFinancePanel, isAdminUser, isCompanyAdmin, isPlatformSuperAdmin } from "../utils/planFeatures";
 import { clearPersistedPanelViews } from "../hooks/usePersistedView";
 import { clearSensitiveToken } from "../utils/sensitiveDataAuth";
 import { clearClientPrivacyCaches } from "../utils/clientPrivacy";
@@ -176,7 +176,7 @@ const getPageInfo = (pathname, firstName) => {
         '/tax-declaration/form16': { title: 'Form 16', subtitle: 'Download your Form 16 certificates' },
         '/tax-declaration/tax-projection': { title: 'Tax Projection', subtitle: 'Estimated TDS for the financial year' },
         '/profile': { title: 'Profile', subtitle: 'Your personal and employment details' },
-        '/holiday-calendar': { title: 'Holiday Calendar', subtitle: 'Company holiday list by year' },
+        '/holiday-calendar': { title: 'Holiday Calendar', subtitle: 'Your circle holiday list for the year' },
         '/performance': { title: 'Performance', subtitle: 'Self review and manager feedback' },
         '/wfh': { title: 'Work From Home', subtitle: 'WFH requests and approvals' },
         '/hr': { title: DEPARTMENT_TITLES.hr, subtitle: 'Administration' },
@@ -216,6 +216,14 @@ const getPageInfo = (pathname, firstName) => {
 
     if (normalizedPath.startsWith("/finance")) {
         return { title: DEPARTMENT_TITLES.finance, subtitle: "Payroll control and payouts" };
+    }
+
+    if (normalizedPath === "/admin/kyb") {
+        return { title: "KYB", subtitle: "Company documents" };
+    }
+
+    if (normalizedPath.includes("/admin/customers/") && normalizedPath.endsWith("/kyb")) {
+        return { title: "KYB review", subtitle: "Verify company documents" };
     }
 
     if (normalizedPath.startsWith("/admin/")) {
@@ -299,7 +307,10 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user, pr
             "finance team": { display: "Finance", route: "/finance", hasPanel: true },
 
             it: { display: "IT", route: "/it", hasPanel: true },
+            "it department": { display: "IT", route: "/it", hasPanel: true },
             "information technology": { display: "IT", route: "/it", hasPanel: true },
+
+            inventory: { display: "Inventory", route: "/it/inventory", hasPanel: true },
 
             admin: { display: "Admin", route: "/admin", hasPanel: true },
             administrator: { display: "Admin", route: "/admin", hasPanel: true },
@@ -327,6 +338,9 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user, pr
         }
         if (normalized === "it" || normalized === "it department" || normalized === "information technology") {
             return { display: "IT", route: "/it", hasPanel: true };
+        }
+        if (normalized === "inventory" || normalized.startsWith("inventory ")) {
+            return { display: "Inventory", route: "/it/inventory", hasPanel: true };
         }
         if (normalized === "account" || normalized.startsWith("account")) {
             return { display: "Account", route: "/account", hasPanel: true };
@@ -359,31 +373,18 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user, pr
         if (route === "/hr") return canAccessHrPanel(user);
         if (route === "/account") return canAccessAccountPanel(user);
         if (route === "/finance") return canAccessFinancePanel(user);
-        if (route === "/it" || route === "/it/inventory") return canAccessItPanel(user);
+        if (route === "/it") return canAccessItPanel(user);
+        if (route === "/it/inventory") return canAccessInventoryPanel(user);
         return true;
     };
 
     const panelLinks = [];
-    const isItPrimaryRole = roleInfo.display?.toLowerCase() === "it";
     if (isAdminUser(user)) {
         panelLinks.push({ display: "Admin", route: "/admin" });
     }
     if (!isOrgWideAdmin) {
         if (roleInfo.hasPanel && roleInfo.route && roleInfo.route !== "/admin" && panelRouteAllowed(roleInfo.route)) {
             panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
-        }
-        // Inventory Management — IT only, directly below IT Management
-        if (
-            canAccessItPanel(user) &&
-            !panelLinks.some((p) => p.route === "/it/inventory")
-        ) {
-            const invLink = { display: "Inventory", route: "/it/inventory" };
-            const itIdx = panelLinks.findIndex((p) => p.route === "/it");
-            if (itIdx >= 0) {
-                panelLinks.splice(itIdx + 1, 0, invLink);
-            } else if (isItPrimaryRole) {
-                panelLinks.push(invLink);
-            }
         }
     }
     if (showManagerPanel && !panelLinks.some((p) => p.route === "/manager")) {

@@ -23,6 +23,29 @@ def holiday_query(tenant_id: Optional[int] = None):
     return HolidayCalendar.query.filter(tenant_column_clause(HolidayCalendar.tenant_id, tenant_id))
 
 
+def holiday_circle_norm(value) -> str:
+    return (str(value or "")).strip()[:80]
+
+
+def company_holiday_clause():
+    from sqlalchemy import or_
+
+    from .models.holiday_calendar import HolidayCalendar
+
+    return or_(HolidayCalendar.circle.is_(None), HolidayCalendar.circle == "")
+
+
+def holiday_scope_clause(circle=None):
+    from sqlalchemy import func
+
+    from .models.holiday_calendar import HolidayCalendar
+
+    name = holiday_circle_norm(circle)
+    if not name:
+        return company_holiday_clause()
+    return func.lower(HolidayCalendar.circle) == name.lower()
+
+
 def policy_query(tenant_id: Optional[int] = None):
     from .models.hr_policy import HRPolicyDocument
 

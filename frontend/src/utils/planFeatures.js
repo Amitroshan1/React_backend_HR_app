@@ -141,7 +141,14 @@ export function isItUser(user) {
   const et = String(user?.emp_type || user?.department || '').trim().toLowerCase().replace(/-/g, ' ');
   const normalized = et.replace(/\s+/g, ' ').trim();
   if (isPlatformSuperAdmin(user)) return true;
-  return ['it', 'it department', 'inventory'].includes(normalized);
+  return ['it', 'it department', 'information technology'].includes(normalized);
+}
+
+export function isInventoryUser(user) {
+  const et = String(user?.emp_type || user?.department || '').trim().toLowerCase().replace(/-/g, ' ');
+  const normalized = et.replace(/\s+/g, ' ').trim();
+  if (isPlatformSuperAdmin(user)) return true;
+  return normalized === 'inventory' || normalized.startsWith('inventory ');
 }
 
 /** Only the application-owner Super Admin bypasses subscription gates. */
@@ -163,11 +170,18 @@ export function canViewOwnAssignedAssets(user, routeEmpId) {
   return myEmpId.toUpperCase() === target.toUpperCase();
 }
 
-/** IT / Inventory: plan feature or org Admin / Super Admin. */
+/** IT module only. Inventory emp type does not get this. */
 export function canAccessItPanel(user) {
   if (adminHasFullPanelAccess(user)) return true;
   if (!hasFeature('it_panel')) return false;
   return isItUser(user) || isCompanyAdmin(user);
+}
+
+/** Inventory module only. IT emp type does not get this. */
+export function canAccessInventoryPanel(user) {
+  if (adminHasFullPanelAccess(user)) return true;
+  if (!hasFeature('it_panel')) return false;
+  return isInventoryUser(user) || isCompanyAdmin(user);
 }
 
 export function canAccessHrPanel(user) {

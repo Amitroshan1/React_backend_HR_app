@@ -75,6 +75,8 @@ import AdminQueries from "./pages/Admin/AdminQueries";
 import AdminClaims from "./pages/Admin/AdminClaims";
 import AdminResignations from "./pages/Admin/AdminResignations";
 import AdminCustomers from "./pages/Admin/AdminCustomers";
+import AdminKybReview from "./pages/Admin/AdminKybReview";
+import AdminKybInbox from "./pages/Admin/AdminKybInbox";
 import AdminRegisterCompany from "./pages/Admin/AdminRegisterCompany";
 import AdminMailboxes from "./pages/Admin/AdminMailboxes";
 import AdminApprovalSettings from "./pages/Admin/AdminApprovalSettings";
@@ -180,7 +182,9 @@ export const App = () => {
             { path: "analytics", element: <AdminAnalytics /> },
             { path: "crm", element: <AdminCrm /> },
             { path: "customers/register", element: <AdminRegisterCompany /> },
+            { path: "customers/:customerId/kyb", element: <AdminKybReview /> },
             { path: "customers", element: <AdminCustomers /> },
+            { path: "kyb", element: <AdminKybInbox /> },
             { path: "mailboxes", element: <AdminMailboxes /> },
             { path: "approval-settings", element: <AdminApprovalSettings /> },
             { path: "leaves", element: <AdminLeaves /> },
@@ -217,7 +221,7 @@ export const App = () => {
             { path: "purchase", element: <ITPurchase /> },
           ],
         },
-        { path: "it/inventory/*",                  element: <RequirePanel panel="it"><InventoryDashboard /></RequirePanel> },
+        { path: "it/inventory/*",                  element: <RequirePanel panel="inventory"><InventoryDashboard /></RequirePanel> },
         { path: "it/parcels/*",                    element: <Navigate to="/it/inventory/parcels" replace /> },
         { path: "it/employee/:empId",              element: <RequireItOrSelfAssets><ITEmployeeDetails /></RequireItOrSelfAssets> },
         { path: "daily-assets",                    element: <RequireMyAssets><DailyAssetsPage /></RequireMyAssets> },

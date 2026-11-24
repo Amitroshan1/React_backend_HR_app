@@ -184,6 +184,8 @@ def _holiday_payload(row):
         "holiday_date": row.holiday_date.isoformat() if row.holiday_date else None,
         "is_optional": bool(row.is_optional),
         "is_active": bool(row.is_active),
+        "not_observe": bool(getattr(row, "not_observe", False)),
+        "circle": (getattr(row, "circle", None) or ""),
     }
 
 
@@ -203,7 +205,7 @@ def active_master_names(tenant_id, master_type):
 
 
 def active_holidays_for_year(tenant_id, year):
-    from .master_data_tenancy import holiday_query
+    from .master_data_tenancy import holiday_query, holiday_scope_clause
     from .models.holiday_calendar import HolidayCalendar
 
     def load():
@@ -211,6 +213,7 @@ def active_holidays_for_year(tenant_id, year):
             holiday_query(tenant_id).filter(
                 HolidayCalendar.year == int(year),
                 HolidayCalendar.is_active.is_(True),
+                holiday_scope_clause(""),
             ).all()
         )
         return [_holiday_payload(row) for row in rows]
@@ -249,9 +252,11 @@ def holiday_namespace(row):
         return None
     if isinstance(row, dict):
         return SimpleNamespace(
+            id=row.get("id"),
             holiday_date=d,
             holiday_name=row.get("holiday_name"),
             is_optional=bool(row.get("is_optional")),
             is_active=bool(row.get("is_active", True)),
+            not_observe=bool(row.get("not_observe")),
         )
     return row

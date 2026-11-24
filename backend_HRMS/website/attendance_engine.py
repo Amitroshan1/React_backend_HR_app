@@ -176,8 +176,8 @@ def load_attendance_month_context(
     today: Optional[date] = None,
 ) -> AttendanceMonthContext:
     """Load punches, leaves, WFH, holidays and precompute month totals inputs."""
+    admin = Admin.query.get(admin_id)
     if emp_type is None:
-        admin = Admin.query.get(admin_id)
         emp_type = (admin.emp_type or "").strip() if admin else ""
 
     today = today or datetime.now(ZoneInfo("Asia/Kolkata")).date()
@@ -207,14 +207,9 @@ def load_attendance_month_context(
         WorkFromHomeApplication.end_date >= first_day,
     ).all()
 
-    from .cache import active_holidays_for_year, holiday_namespace
-    from .master_data_tenancy import tenant_for_admin_id
+    from .holiday_resolver import holiday_map_for_admin_span
 
-    holiday_map = {}
-    for row in active_holidays_for_year(tenant_for_admin_id(admin_id), year):
-        h = holiday_namespace(row)
-        if h is not None and first_day <= h.holiday_date <= last_day:
-            holiday_map[h.holiday_date] = h
+    holiday_map = holiday_map_for_admin_span(admin, first_day, last_day) if admin else {}
 
     ctx = AttendanceMonthContext(
         admin_id=admin_id,

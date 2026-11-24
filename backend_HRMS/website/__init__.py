@@ -2048,6 +2048,9 @@ def create_app():
             from .tenant_migrations import ensure_master_data_tenant_ids
 
             ensure_master_data_tenant_ids(db.engine, app.logger)
+            from .tenant_migrations import ensure_holiday_calendar_circle_column
+
+            ensure_holiday_calendar_circle_column(db.engine, app.logger)
         except Exception as e:
             app.logger.warning("master data tenant_id migration skipped: %s", e)
 

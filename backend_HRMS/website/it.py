@@ -123,7 +123,7 @@ def _allow_manager_purchase_access():
 @it_bp.before_request
 def _it_plan_guard():
     from flask_jwt_extended import get_jwt, verify_jwt_in_request
-    from .plan_features import can_access_it_panel, plan_forbidden_response
+    from .plan_features import can_access_it_or_inventory_panel, plan_forbidden_response
 
     if request.method == "OPTIONS":
         return None
@@ -134,7 +134,7 @@ def _it_plan_guard():
         return jsonify({"success": False, "message": "Unauthorized"}), 401
 
     claims = get_jwt() or {}
-    if not can_access_it_panel(claims):
+    if not can_access_it_or_inventory_panel(claims):
         if _allow_self_asset_access_for_non_it():
             return None
         if _allow_finance_purchase_access(claims):

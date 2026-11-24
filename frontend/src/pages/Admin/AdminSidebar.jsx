@@ -11,6 +11,7 @@ import {
   Handshake,
   ClipboardCheck,
   ClipboardList,
+  FileText,
   Inbox,
   LayoutDashboard,
   Mail,
@@ -28,6 +29,7 @@ import {
   canAccessAccountPanel,
   canAccessFinancePanel,
   canAccessItPanel,
+  canAccessInventoryPanel,
   isPlatformSuperAdmin,
 } from '../../utils/planFeatures';
 import './AdminSidebar.css';
@@ -47,6 +49,7 @@ const groups = [
     label: 'Companies',
     items: [
       { id: 'customers', to: '/admin/customers', label: 'Customers', icon: Building2 },
+      { id: 'kyb', to: '/admin/kyb', label: 'KYB', icon: FileText },
       { id: 'register', to: '/admin/customers/register', label: 'Register company', icon: UserPlus },
       { id: 'mailboxes', to: '/admin/mailboxes', label: 'Company settings', icon: Mail },
       { id: 'approval-settings', to: '/admin/approval-settings', label: 'Approval settings', icon: ShieldCheck },
@@ -87,6 +90,9 @@ const groups = [
 
 function linkIsActive(item, pathname, isActive) {
   if (item.id === 'customers') return pathname === '/admin/customers';
+  if (item.id === 'kyb') {
+    return pathname === '/admin/kyb' || /\/admin\/customers\/\d+\/kyb$/.test(pathname);
+  }
   if (item.id === 'register') return pathname.startsWith('/admin/customers/register');
   if (item.id === 'manager') return pathname.startsWith('/manager');
   if (item.id === 'it') return pathname.startsWith('/it') && !pathname.startsWith('/it/inventory');
@@ -115,7 +121,7 @@ export default function AdminSidebar({ onNavigate, platform = false, user }) {
       if (group.id === 'companies') {
         return {
           ...group,
-          items: group.items.filter((item) => owner || !['customers', 'register'].includes(item.id)),
+          items: group.items.filter((item) => owner || !['customers', 'register', 'kyb'].includes(item.id)),
         };
       }
       if (group.id === 'workspaces') {
@@ -124,7 +130,8 @@ export default function AdminSidebar({ onNavigate, platform = false, user }) {
           items: group.items.filter((item) => {
             if (item.id === 'accounts') return canAccessAccountPanel(user);
             if (item.id === 'finance') return canAccessFinancePanel(user);
-            if (item.id === 'it' || item.id === 'inventory') return canAccessItPanel(user);
+            if (item.id === 'it') return canAccessItPanel(user);
+            if (item.id === 'inventory') return canAccessInventoryPanel(user);
             if (item.id === 'manager') return user?.has_manager_access === true;
             return true;
           }),

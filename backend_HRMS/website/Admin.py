@@ -331,7 +331,7 @@ def get_dashboard():
         pass
 
     claims = get_jwt() or {}
-    from .plan_features import can_access_it_panel
+    from .plan_features import can_access_it_or_inventory_panel
 
     return jsonify({
         "success": True,
@@ -345,7 +345,7 @@ def get_dashboard():
         "pending_leaves": pending_leaves,
         "pending_queries": pending_queries,
         "pending_claims": pending_claims,
-        "it_inventory_access": can_access_it_panel(claims),
+        "it_inventory_access": can_access_it_or_inventory_panel(claims),
         "total_inventory_assets": total_inventory_assets,
         "open_tickets": open_tickets,
         "pending_return_requests": pending_return_requests,
@@ -1253,20 +1253,34 @@ def list_deployed_customers():
             DeployedCustomer.company_name.asc()
         ).all()
     )
+    from .datetime_utils import isoformat_api
     from .models.tenant import Tenant
+    from .models.tenant_kyb import TenantKybInvite
 
     tenants = {t.slug: t for t in Tenant.query.all() if t.slug}
+    latest_invite = {}
+    for invite in TenantKybInvite.query.order_by(TenantKybInvite.id.desc()).all():
+        if invite.tenant_id not in latest_invite:
+            latest_invite[invite.tenant_id] = invite
     plans, statuses = _registry_meta()
     counts = {s: 0 for s in STATUS_ORDER}
     kyc_counts = {}
     customers = []
+    pack_statuses = {"submitted", "needs_fix", "verified"}
     for r in rows:
         key = normalize_status(r.status) or "provisioning"
         counts[key] = counts.get(key, 0) + 1
         payload = r.to_dict()
         tenant = tenants.get(r.slug)
-        payload["kyc_status"] = (tenant.kyc_status or "not_required") if tenant else "not_required"
+        kyc = (tenant.kyc_status or "not_required") if tenant else "not_required"
+        payload["kyc_status"] = kyc
         payload["tenant_id"] = tenant.id if tenant else None
+        invite = latest_invite.get(tenant.id) if tenant else None
+        payload["kyb_revision"] = invite.revision if invite else None
+        payload["kyb_submitted_at"] = isoformat_api(invite.submitted_at) if invite else None
+        payload["kyb_reviewed_at"] = isoformat_api(invite.reviewed_at) if invite else None
+        payload["kyb_invite_status"] = invite.status if invite else None
+        payload["kyb_has_pack"] = kyc in pack_statuses
         kyc_counts[payload["kyc_status"]] = kyc_counts.get(payload["kyc_status"], 0) + 1
         customers.append(payload)
     return jsonify({
@@ -1351,10 +1365,6 @@ def create_deployed_customer():
     if not db_name and _silo_provision_legacy_enabled():
         db_name = suggest_database_name(company_name, slug=slug)
 
-    contact = (data.get("contact_email") or "").strip() or None
-    if contact and "@" not in contact:
-        return jsonify({"success": False, "message": "Invalid contact email"}), 400
-
     admin_email = (data.get("admin_email") or "").strip().lower() or None
     admin_name = (data.get("admin_name") or "").strip()[:150] or None
     admin_mobile = (data.get("admin_mobile") or "").strip().replace(" ", "")[:15] or None
@@ -1362,12 +1372,13 @@ def create_deployed_customer():
         return jsonify({"success": False, "message": "Admin email is required to create the company admin"}), 400
     if admin_email and ("@" not in admin_email or len(admin_email) > 120):
         return jsonify({"success": False, "message": "Invalid admin email"}), 400
+
+    contact = (data.get("contact_email") or "").strip().lower() or admin_email
+    if contact and "@" not in contact:
+        return jsonify({"success": False, "message": "Invalid contact email"}), 400
     country = (data.get("country") or "").strip()
     if len(country) > 100:
         return jsonify({"success": False, "message": "Country must be 100 characters or fewer"}), 400
-    mailboxes, mailbox_error = _parse_tenant_mailboxes(data, plan=plan)
-    if mailbox_error:
-        return jsonify({"success": False, "message": mailbox_error}), 400
 
     row = DeployedCustomer(
         company_name=company_name,
@@ -1384,8 +1395,6 @@ def create_deployed_customer():
     db.session.add(row)
     db.session.flush()
     tenant = _sync_tenant_from_customer(row, create=True, update_country=True)
-    for column, value in mailboxes.items():
-        setattr(tenant, column, value)
     tenant_admin = None
     if admin_email:
         db.session.flush()

@@ -1,0 +1,93 @@
+.kyb-inbox__message {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #047857;
+  font-weight: 600;
+}
+
+.kyb-inbox__search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 16px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #334155;
+}
+
+.kyb-inbox__search input {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 400;
+}
+
+.kyb-inbox__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kyb-inbox__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e1e7ef;
+  background: #fff;
+  border-radius: 14px;
+  padding: 14px 16px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.kyb-inbox__row:hover {
+  border-color: #99f6e4;
+}
+
+.kyb-inbox__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: #ecfdf5;
+  color: #0f766e;
+}
+
+.kyb-inbox__body {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kyb-inbox__body span {
+  color: #667895;
+  font-size: 0.82rem;
+}
+
+.kyb-inbox__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kyb-inbox__new {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

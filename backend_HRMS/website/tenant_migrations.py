@@ -384,7 +384,7 @@ def ensure_tenant_unique(engine, logger, table: str, name: str, key: list[str]) 
 # (table, per-tenant unique name, old global unique key); existing rows → default tenant.
 MASTER_DATA_TENANT_TABLES = (
     ("master_data", "uq_master_tenant_type_name", ["master_type", "name"]),
-    ("holiday_calendar", "uq_holiday_calendar_tenant_year_name", ["year", "holiday_name"]),
+    ("holiday_calendar", None, None),
     ("hr_policy_documents", None, None),
     ("location", None, None),
 )
@@ -401,6 +401,59 @@ def ensure_master_data_tenant_ids(engine, logger) -> dict:
         except Exception as e:
             out[table] = {"error": str(e)}
             logger.warning("%s.tenant_id migration skipped: %s", table, e)
+    return out
+
+
+def ensure_holiday_calendar_circle_column(engine, logger) -> dict:
+    """Add holiday_calendar.circle ('' = company) and unique (tenant, year, name, circle)."""
+    table = "holiday_calendar"
+    new_unique = "uq_holiday_calendar_tenant_year_name_circle"
+    old_unique = "uq_holiday_calendar_tenant_year_name"
+    out = {"added": False, "unique_created": False, "unique_dropped": []}
+    insp = inspect(engine)
+    if table not in insp.get_table_names():
+        return out
+    dialect = engine.dialect.name
+    cols = {c["name"] for c in insp.get_columns(table)}
+    if "circle" not in cols:
+        col_sql = (
+            "VARCHAR(80) NOT NULL DEFAULT ''"
+            if dialect == "mysql"
+            else "VARCHAR(80) NOT NULL DEFAULT ''"
+        )
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN circle {col_sql}"))
+        out["added"] = True
+        logger.info("Added column holiday_calendar.circle")
+    with engine.begin() as conn:
+        conn.execute(text(f"UPDATE {table} SET circle = '' WHERE circle IS NULL"))
+    wanted = ["tenant_id", "year", "holiday_name", "circle"]
+    if "tenant_id" in {c["name"] for c in inspect(engine).get_columns(table)}:
+        if not any(e["columns"] == wanted for e in _unique_indexes(inspect(engine), table)):
+            cols_sql = ", ".join(_q(dialect, c) for c in wanted)
+            with engine.begin() as conn:
+                conn.execute(text(f"CREATE UNIQUE INDEX {_q(dialect, new_unique)} ON {table} ({cols_sql})"))
+            out["unique_created"] = True
+            logger.info("Created unique index %s", new_unique)
+        for entry in _unique_indexes(inspect(engine), table):
+            if entry["name"] != old_unique:
+                continue
+            with engine.begin() as conn:
+                dropped = _drop_unique(conn, dialect, entry, table)
+            if dropped:
+                out["unique_dropped"].append(entry["name"])
+                logger.info("Dropped unique %s on holiday_calendar", entry["name"])
+    cols = {c["name"] for c in inspect(engine).get_columns(table)}
+    if "not_observe" not in cols:
+        col_sql = (
+            "TINYINT(1) NOT NULL DEFAULT 0"
+            if dialect == "mysql"
+            else "BOOLEAN NOT NULL DEFAULT 0"
+        )
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN not_observe {col_sql}"))
+        out["not_observe_added"] = True
+        logger.info("Added column holiday_calendar.not_observe")
     return out
 
 

@@ -67,7 +67,7 @@ from .email import (
     send_assessment_hr_report_email,
 )
 from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
-from .circle_transfer_utils import fetch_admins_for_attendance_export
+from .circle_transfer_utils import circle_on_date, fetch_admins_for_attendance_export
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
 from .models.prev_com import PreviousCompany
@@ -97,7 +97,15 @@ from .models.master_data import MasterData
 from .models.leave_accrual_log import LeaveAccrualLog
 from .models.holiday_calendar import HolidayCalendar
 from .ats_service import assessment_invite_query
-from .master_data_tenancy import holiday_query, location_query, master_query, policy_query, tenant_for_admin_id
+from .master_data_tenancy import (
+    holiday_query,
+    holiday_scope_clause,
+    holiday_circle_norm,
+    location_query,
+    master_query,
+    policy_query,
+    tenant_for_admin_id,
+)
 from werkzeug.security import generate_password_hash
 import os
 import shutil
@@ -582,17 +590,43 @@ def _serialize_holiday(row, sr_no=None):
         "day": day_name,
         "is_optional": bool(row.is_optional),
         "is_active": bool(row.is_active),
+        "not_observe": bool(getattr(row, "not_observe", False)),
+        "circle": holiday_circle_norm(getattr(row, "circle", None)),
+        "source": "overlay" if holiday_circle_norm(getattr(row, "circle", None)) else "company",
+    }
+
+
+def _serialize_resolved_holiday(item, sr_no=None):
+    from .cache import holiday_as_date
+
+    dt = holiday_as_date(item.get("holiday_date"))
+    day_name = DAY_NAMES.get(dt.weekday(), "") if dt else ""
+    return {
+        "id": item.get("id"),
+        "sr_no": sr_no,
+        "year": item.get("year"),
+        "holiday_name": item.get("holiday_name"),
+        "holiday_date": dt.isoformat() if dt else item.get("holiday_date"),
+        "display_date": dt.strftime("%d-%m-%Y") if dt else None,
+        "day": day_name,
+        "is_optional": bool(item.get("is_optional")),
+        "is_active": bool(item.get("is_active", True)),
+        "not_observe": bool(item.get("not_observe")),
+        "circle": holiday_circle_norm(item.get("circle")),
+        "source": item.get("source") or "",
     }
 
 
 def _seed_holidays_for_year(year, overwrite=False, tenant_id=None):
     tid = tenant_id if tenant_id is not None else get_current_tenant_id()
-    existing = holiday_query(tid).filter(HolidayCalendar.year == year).all()
+    existing = holiday_query(tid).filter(HolidayCalendar.year == year, holiday_scope_clause("")).all()
     if existing and not overwrite:
         return existing
 
     if overwrite and existing:
-        holiday_query(tid).filter(HolidayCalendar.year == year).delete(synchronize_session=False)
+        holiday_query(tid).filter(HolidayCalendar.year == year, holiday_scope_clause("")).delete(
+            synchronize_session=False
+        )
         db.session.flush()
 
     rows = []
@@ -603,8 +637,10 @@ def _seed_holidays_for_year(year, overwrite=False, tenant_id=None):
                 year=year,
                 holiday_name=item["holiday_name"],
                 holiday_date=date(year, item["month"], item["day"]),
+                circle="",
                 is_optional=bool(item["is_optional"]),
                 is_active=True,
+                not_observe=False,
             )
         )
     db.session.add_all(rows)
@@ -613,6 +649,71 @@ def _seed_holidays_for_year(year, overwrite=False, tenant_id=None):
 
     bump_holidays(tid)
     return rows
+
+
+def _list_year_holidays(year, circle=""):
+    return (
+        holiday_query()
+        .filter(
+            HolidayCalendar.year == year,
+            HolidayCalendar.is_active.is_(True),
+            holiday_scope_clause(circle),
+        )
+        .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
+        .all()
+    )
+
+
+def _overlay_circle_summaries(year):
+    rows = (
+        holiday_query()
+        .filter(
+            HolidayCalendar.year == year,
+            HolidayCalendar.is_active.is_(True),
+            ~holiday_scope_clause(""),
+        )
+        .all()
+    )
+    counts = {}
+    for row in rows:
+        name = holiday_circle_norm(getattr(row, "circle", None))
+        if not name:
+            continue
+        counts[name] = counts.get(name, 0) + 1
+    return [{"circle": name, "count": counts[name]} for name in sorted(counts, key=str.lower)]
+
+
+def _copy_company_holidays_to_circle(year, circle):
+    company_rows = _list_year_holidays(year, "")
+    for src in company_rows:
+        existing = (
+            holiday_query()
+            .filter(
+                HolidayCalendar.year == year,
+                holiday_scope_clause(circle),
+                db.func.lower(HolidayCalendar.holiday_name) == src.holiday_name.lower(),
+            )
+            .first()
+        )
+        if existing:
+            existing.holiday_name = src.holiday_name[:120]
+            existing.holiday_date = src.holiday_date
+            existing.is_optional = bool(src.is_optional)
+            existing.is_active = True
+            existing.not_observe = False
+            continue
+        db.session.add(
+            HolidayCalendar(
+                tenant_id=get_current_tenant_id(),
+                year=year,
+                holiday_name=src.holiday_name[:120],
+                holiday_date=src.holiday_date,
+                circle=circle,
+                is_optional=bool(src.is_optional),
+                is_active=True,
+                not_observe=False,
+            )
+        )
 
 
 @hr.route("/holidays", methods=["GET"])
@@ -624,73 +725,56 @@ def list_holidays_for_year():
         return jsonify({"success": False, "message": "Invalid year. Allowed range: 2000-2100"}), 400
 
     auto_seed = str(request.args.get("auto_seed", "1")).strip() != "0"
-    rows = (
-        holiday_query().filter(
-            HolidayCalendar.year == year,
-            HolidayCalendar.is_active.is_(True),
-        )
-        .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
-        .all()
-    )
-    if not rows and auto_seed:
+    circle = holiday_circle_norm(request.args.get("circle"))
+    rows = _list_year_holidays(year, circle)
+    if not rows and auto_seed and not circle:
         _seed_holidays_for_year(year, overwrite=False)
-        rows = (
-            holiday_query().filter(
-                HolidayCalendar.year == year,
-                HolidayCalendar.is_active.is_(True),
-            )
-            .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
-            .all()
-        )
+        rows = _list_year_holidays(year, "")
 
-    return jsonify(
-        {
-            "success": True,
-            "year": year,
-            "holidays": [_serialize_holiday(r, idx + 1) for idx, r in enumerate(rows)],
-        }
-    ), 200
+    payload = {
+        "success": True,
+        "year": year,
+        "circle": circle,
+        "holidays": [_serialize_holiday(r, idx + 1) for idx, r in enumerate(rows)],
+    }
+    if not circle:
+        payload["overlay_circles"] = _overlay_circle_summaries(year)
+    else:
+        from .holiday_resolver import resolved_holidays_for_year
+
+        resolved = resolved_holidays_for_year(get_current_tenant_id(), year, circle)
+        resolved.sort(key=lambda p: (p.get("holiday_date") or "", p.get("holiday_name") or ""))
+        payload["resolved"] = [_serialize_resolved_holiday(p, idx + 1) for idx, p in enumerate(resolved)]
+    return jsonify(payload), 200
 
 
 @hr.route("/holidays/user", methods=["GET"])
 @jwt_required()
 def list_holidays_for_user_view():
-    from .models.Admin_models import Admin
-    claims = get_jwt()
-    email = (claims.get("email") or "").strip()
     admin = current_admin()
-    if not admin or (admin.circle or "").strip().upper() != "NHQ":
-        return jsonify({"success": False, "message": "Holiday calendar is restricted to NHQ users"}), 403
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     year = _parse_year_or_400(request.args.get("year", date.today().year))
     if not year:
         return jsonify({"success": False, "message": "Invalid year. Allowed range: 2000-2100"}), 400
 
     auto_seed = str(request.args.get("auto_seed", "1")).strip() != "0"
-    rows = (
-        holiday_query().filter(
-            HolidayCalendar.year == year,
-            HolidayCalendar.is_active.is_(True),
-        )
-        .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
-        .all()
-    )
-    if not rows and auto_seed:
+    if auto_seed and not _list_year_holidays(year, ""):
         _seed_holidays_for_year(year, overwrite=False)
-        rows = (
-            holiday_query().filter(
-                HolidayCalendar.year == year,
-                HolidayCalendar.is_active.is_(True),
-            )
-            .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
-            .all()
-        )
 
+    from .holiday_resolver import observed_holidays_for_year
+
+    today = date.today()
+    circle = holiday_circle_norm(circle_on_date(admin, today))
+    payloads = observed_holidays_for_year(get_current_tenant_id(), year, circle)
+    payloads.sort(key=lambda p: (p.get("holiday_date") or "", p.get("holiday_name") or ""))
     return jsonify(
         {
             "success": True,
             "year": year,
-            "holidays": [_serialize_holiday(r, idx + 1) for idx, r in enumerate(rows)],
+            "circle": circle,
+            "holidays": [_serialize_resolved_holiday(p, idx + 1) for idx, p in enumerate(payloads)],
         }
     ), 200
 
@@ -710,6 +794,7 @@ def seed_holidays_for_year():
         holiday_query().filter(
             HolidayCalendar.year == year,
             HolidayCalendar.is_active.is_(True),
+            holiday_scope_clause(""),
         )
         .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
         .all()
@@ -720,6 +805,75 @@ def seed_holidays_for_year():
             "message": "Holiday list generated successfully",
             "year": year,
             "holidays": [_serialize_holiday(r, idx + 1) for idx, r in enumerate(rows)],
+        }
+    ), 200
+
+
+@hr.route("/holidays/circle-calendar", methods=["POST"])
+@jwt_required()
+@hr_required
+def create_circle_holiday_calendar():
+    data = request.get_json(silent=True) or {}
+    year = _parse_year_or_400(data.get("year"))
+    if not year:
+        return jsonify({"success": False, "message": "Invalid year. Allowed range: 2000-2100"}), 400
+    circle = holiday_circle_norm(data.get("circle"))
+    if not circle:
+        return jsonify({"success": False, "message": "circle is required"}), 400
+    if not _is_allowed_master_value(MASTER_TYPE_CIRCLE, circle):
+        return jsonify({"success": False, "message": f"Unknown circle '{circle}'"}), 400
+
+    copy_from_company = bool(data.get("copy_from_company", True))
+    if copy_from_company:
+        if not _list_year_holidays(year, ""):
+            _seed_holidays_for_year(year, overwrite=False)
+        _copy_company_holidays_to_circle(year, circle)
+        db.session.commit()
+        from .cache import bump_holidays
+
+        bump_holidays()
+
+    rows = _list_year_holidays(year, circle)
+    return jsonify(
+        {
+            "success": True,
+            "year": year,
+            "circle": circle,
+            "copied": copy_from_company,
+            "overlay_circles": _overlay_circle_summaries(year),
+            "holidays": [_serialize_holiday(r, idx + 1) for idx, r in enumerate(rows)],
+        }
+    ), 200
+
+
+@hr.route("/holidays/circle-calendar", methods=["DELETE"])
+@jwt_required()
+@hr_required
+def delete_circle_holiday_calendar():
+    data = request.get_json(silent=True) or {}
+    year = _parse_year_or_400(data.get("year") or request.args.get("year"))
+    if not year:
+        return jsonify({"success": False, "message": "Invalid year. Allowed range: 2000-2100"}), 400
+    circle = holiday_circle_norm(data.get("circle") or request.args.get("circle"))
+    if not circle:
+        return jsonify({"success": False, "message": "circle is required"}), 400
+
+    rows = holiday_query().filter(HolidayCalendar.year == year, holiday_scope_clause(circle)).all()
+    if not rows:
+        return jsonify({"success": False, "message": f"No overlay calendar for {circle}"}), 404
+    for row in rows:
+        row.is_active = False
+    db.session.commit()
+    from .cache import bump_holidays
+
+    bump_holidays()
+    return jsonify(
+        {
+            "success": True,
+            "message": f"Removed custom calendar for {circle}",
+            "year": year,
+            "circle": circle,
+            "overlay_circles": _overlay_circle_summaries(year),
         }
     ), 200
 
@@ -753,9 +907,14 @@ def create_holiday():
         ), 400
 
     is_optional = bool(data.get("is_optional", False))
+    not_observe = bool(data.get("not_observe", False))
+    circle = holiday_circle_norm(data.get("circle"))
+    if circle and not _is_allowed_master_value(MASTER_TYPE_CIRCLE, circle):
+        return jsonify({"success": False, "message": f"Unknown circle '{circle}'"}), 400
 
     existing = holiday_query().filter(
         HolidayCalendar.year == year,
+        holiday_scope_clause(circle),
         db.func.lower(HolidayCalendar.holiday_name) == holiday_name.lower(),
     ).first()
     if existing:
@@ -770,6 +929,7 @@ def create_holiday():
         existing.holiday_date = parsed_date
         existing.is_optional = is_optional
         existing.is_active = True
+        existing.not_observe = not_observe if circle else False
         db.session.commit()
         from .cache import bump_holidays
 
@@ -787,8 +947,10 @@ def create_holiday():
         year=year,
         holiday_name=holiday_name[:120],
         holiday_date=parsed_date,
+        circle=circle,
         is_optional=is_optional,
         is_active=True,
+        not_observe=not_observe if circle else False,
     )
     try:
         db.session.add(row)
@@ -832,6 +994,7 @@ def update_holiday(holiday_id):
             HolidayCalendar.year == row.year,
             HolidayCalendar.id != row.id,
             HolidayCalendar.is_active.is_(True),
+            holiday_scope_clause(getattr(row, "circle", "")),
             db.func.lower(HolidayCalendar.holiday_name) == holiday_name.lower(),
         ).first()
         if dup:
@@ -855,6 +1018,12 @@ def update_holiday(holiday_id):
 
     if "is_optional" in data:
         row.is_optional = bool(data.get("is_optional"))
+
+    if "not_observe" in data:
+        if holiday_circle_norm(getattr(row, "circle", None)):
+            row.not_observe = bool(data.get("not_observe"))
+        else:
+            row.not_observe = False
 
     if "is_active" in data:
         row.is_active = bool(data.get("is_active"))
@@ -4240,6 +4409,7 @@ def _compute_leave_projection(*, admin, leave_balance, leave_type, start_date, e
         end_date=end_date,
         leave_type=leave_type,
         tenant_id=tenant_id_for_admin(admin),
+        circle=circle_on_date(admin, start_date),
     )
     if calendar_err:
         return None, calendar_err
@@ -4249,6 +4419,7 @@ def _compute_leave_projection(*, admin, leave_balance, leave_type, start_date, e
         start_date=start_date,
         end_date=end_date,
         tenant_id=tenant_id_for_admin(admin),
+        circle=circle_on_date(admin, start_date),
     )
     leave_days = float(working_days) + float(sandwich_days)
     deducted_days = 0.0
@@ -4406,7 +4577,12 @@ def _validate_optional_leave_on_behalf(admin_id, start_date, end_date):
         )
     if start_date != end_date:
         return "Optional Leave can only be applied for one day"
-    if not _optional_holiday_on_date(start_date, tenant_id=tenant_for_admin_id(admin_id)):
+    target = Admin.query.get(admin_id)
+    if not _optional_holiday_on_date(
+        start_date,
+        tenant_id=tenant_for_admin_id(admin_id),
+        circle=circle_on_date(target, start_date) if target else "",
+    ):
         return "Selected date is not an optional holiday in the company calendar"
     return None
 

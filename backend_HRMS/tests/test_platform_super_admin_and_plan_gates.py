@@ -19,6 +19,7 @@ from website.models.Admin_models import Admin  # noqa: E402
 from website.models.tenant import Tenant  # noqa: E402
 from website.plan_features import (  # noqa: E402
     can_access_accounts_panel,
+    can_access_inventory_panel,
     can_access_it_panel,
     is_org_admin,
     is_platform_super_admin,
@@ -98,6 +99,16 @@ def test_basic_plan_admin_has_no_accounts_or_it(app):
     with app.app_context():
         assert can_access_accounts_panel(claims) is False
         assert can_access_it_panel(claims) is False
+
+
+def test_it_and_inventory_emp_types_are_separate(app):
+    it_claims = {"emp_type": "IT", "tenant_id": 1}
+    inv_claims = {"emp_type": "Inventory", "tenant_id": 1}
+    with app.app_context():
+        assert can_access_it_panel(it_claims) is True
+        assert can_access_inventory_panel(it_claims) is False
+        assert can_access_it_panel(inv_claims) is False
+        assert can_access_inventory_panel(inv_claims) is True
 
 
 def test_essential_plan_admin_has_accounts_not_it(app):

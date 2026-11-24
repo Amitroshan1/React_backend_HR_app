@@ -14,6 +14,7 @@ function authHeaders() {
 export const HolidayCalendarUser = () => {
   const [year] = useState(new Date().getFullYear());
   const [rows, setRows] = useState([]);
+  const [circle, setCircle] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -26,14 +27,17 @@ export const HolidayCalendarUser = () => {
         headers: {
           ...authHeaders(),
         },
+        credentials: "include",
       });
       const result = await response.json();
       if (!response.ok || !result.success) {
         throw new Error(result.message || "Failed to load holiday list");
       }
       setRows(result.holidays || []);
+      setCircle(result.circle || "");
     } catch (err) {
       setRows([]);
+      setCircle("");
       setError(err.message || "Failed to load holiday list");
     } finally {
       setLoading(false);
@@ -51,7 +55,11 @@ export const HolidayCalendarUser = () => {
       <div className="hc-card hc-calendar-card">
         <div className="hc-card-header">
           <h2 className="hc-section-title">Holiday Calendar {year}</h2>
-          <p className="hc-subtitle">Company holiday list for {year}.</p>
+          <p className="hc-subtitle">
+            {circle
+              ? `Holidays for ${circle} in ${year} (company list plus any circle extras).`
+              : `Company holiday list for ${year}.`}
+          </p>
         </div>
 
         <div className="hc-card-body">
@@ -76,7 +84,7 @@ export const HolidayCalendarUser = () => {
                   </tr>
                 ) : (
                   rows.map((row) => (
-                    <tr key={row.id}>
+                    <tr key={row.id || `${row.holiday_date}-${row.holiday_name}`}>
                       <td data-label="Sr. No.">{row.sr_no}</td>
                       <td data-label="Date">{formatDate(row.holiday_date) || "-"}</td>
                       <td data-label="Day">{row.day || "-"}</td>
