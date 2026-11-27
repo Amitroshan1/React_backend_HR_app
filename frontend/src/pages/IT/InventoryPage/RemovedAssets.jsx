@@ -33,7 +33,7 @@ import {
 import { formatDate } from "../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const SEARCH_FIELDS = ["brand", "assetName", "serialNumber"];
+const SEARCH_FIELDS = ["brand", "assetName", "serialNumber", "deletedId"];
 const PER_PAGE = 25;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

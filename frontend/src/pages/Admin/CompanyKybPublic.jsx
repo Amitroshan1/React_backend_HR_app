@@ -36,9 +36,9 @@ export default function CompanyKybPublic() {
   const [profile, setProfile] = useState(emptyProfile);
   const [busy, setBusy] = useState(false);
 
-  const applyCtx = (data) => {
+  const applyCtx = (data, { keepProfile = true } = {}) => {
     setCtx(data);
-    if (data?.profile) {
+    if (keepProfile && data?.profile) {
       setProfile((current) => ({ ...current, ...data.profile }));
     }
   };
@@ -152,7 +152,8 @@ export default function CompanyKybPublic() {
         if (saveData) applyCtx(saveData);
         return;
       }
-      applyCtx(data);
+      applyCtx(data, { keepProfile: false });
+      setProfile(emptyProfile());
     } catch {
       setError('Network error. Please try again.');
     } finally {
@@ -185,7 +186,7 @@ export default function CompanyKybPublic() {
             <p>Thank you. Super Admin has been notified and will review your details and documents. You will hear by email if anything else is needed.</p>
           </div>
         ) : null}
-        {ctx && !loading ? (
+        {ctx && !loading && !submitted ? (
           <form className="kyb-card" onSubmit={submit}>
             <h2>Company</h2>
             <p className="kyb-hint">

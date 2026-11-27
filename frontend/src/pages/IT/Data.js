@@ -1,6 +1,7 @@
 import {
   getInventoryRowForUnit,
   isMobileTabletHwType,
+  qtyManagedAvailable,
   resolveInventoryCategory,
 } from "./inventoryCategories";
 import {
@@ -1028,6 +1029,7 @@ const _tokenHeaders = () => {
 async function _itFetch(path, { method = "GET", body, headers = {} } = {}) {
   const res = await fetch(`${IT_API_BASE}${path}`, {
     method,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ..._tokenHeaders(),
@@ -1091,6 +1093,7 @@ const _toLocalInventory = (item) => {
   };
   return {
     ...row,
+    availableQuantity: qtyManagedAvailable(row),
     inventoryCategory: resolveInventoryCategory(row),
   };
 };
@@ -1204,10 +1207,19 @@ const _toLocalParcelExport = (r) => ({
     id: a.id,
     assetUnitId: a.assetUnitId ?? a.asset_unit_id ?? null,
     assetName: a.assetName || "",
-    serialNo: a.serialNo || "",
+    serialNo: a.serialNo || a.serialNumber || "",
     brand: a.brand || "",
     make: a.make || "",
     model: a.model || "",
+    hwType: a.hwType || a.hw_type || "",
+    itemCategory: a.itemCategory || a.category || "",
+    imei: a.imei || a.imei1 || "",
+    imei1: a.imei1 || "",
+    imei2: a.imei2 || "",
+    unitCode: a.unitCode || a.unit_code || "",
+    laptopCode: a.laptopCode || a.laptop_code || "",
+    projectCode: a.projectCode || a.project_code || "",
+    purchaseDate: a.purchaseDate || a.purchase_date || "",
     individualPhoto: a.individualPhoto || null,
   })),
   photos: r.photos || [],
@@ -1377,6 +1389,22 @@ export const updateInventoryItemAPI = async (itemId, payload = {}) =>
   _itFetch(`/inventory/items/${itemId}`, {
     method: "PATCH",
     body: payload,
+  });
+
+/** Move available qty to Repair / Not Working / Dead Assets (accessories & consumables). */
+export const updateInventoryQuantityStatusAPI = async (
+  itemId,
+  { action, quantity = 1, remark = null, notes = null, reason = null } = {},
+) =>
+  _itFetch(`/inventory/items/${itemId}/quantity-status`, {
+    method: "POST",
+    body: {
+      action,
+      quantity,
+      remark: remark || notes || reason || null,
+      notes: notes || remark || null,
+      reason: reason || remark || null,
+    },
   });
 
 export const updateAssetUnitAPI = async (unitId, payload = {}) =>

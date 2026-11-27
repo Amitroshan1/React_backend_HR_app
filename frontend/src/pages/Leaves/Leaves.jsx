@@ -7,6 +7,8 @@ import { useUser } from '../../components/layout/UserContext';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
 import { getAccessToken } from "../../utils/authSession";
+import { formatLeaveDays, isLikelyNetworkError, parseLeaveDays } from "../../utils/networkStatus";
+import { useNetworkOnline } from "../../hooks/useNetworkOnline";
 
 const API_BASE_URL = "/api/leave";
 const RECENT_HISTORY_LIMIT = 10;
@@ -25,12 +27,6 @@ const MONTH_OPTIONS = [
     { value: 11, label: "November" },
     { value: 12, label: "December" },
 ];
-
-const formatLeaveDays = (value) => {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return "—";
-    return Number.isInteger(n) ? String(n) : n.toFixed(1);
-};
 
 const padMonth = (month) => String(month).padStart(2, "0");
 
@@ -58,7 +54,8 @@ const leaveMatchesFilter = (request, filterYear, filterMonth) => {
 
 export const Leaves= () => {
     const navigate = useNavigate();
-    const { userData, refreshUserData } = useUser();
+    const { userData, refreshUserData, shellStatus } = useUser();
+    const online = useNetworkOnline();
     const [requests, setRequests] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [loadingRequests, setLoadingRequests] = useState(true);
@@ -130,55 +127,60 @@ export const Leaves= () => {
         setFilterMonth("");
     };
 
-    // Dynamic Calculation of Balances based on backend leave_balance
     const stats = useMemo(() => {
         const lb = userData.leave_balance || {};
+        const remainingPl = parseLeaveDays(lb.pl);
+        const remainingCl = parseLeaveDays(lb.cl);
+        const remainingComp = parseLeaveDays(lb.comp);
+        const totalPl = parseLeaveDays(lb.total_pl);
+        const totalCl = parseLeaveDays(lb.total_cl);
+        const usedCasual = parseLeaveDays(lb.used_cl);
+        const usedPrivilege = parseLeaveDays(lb.used_pl);
+        const usedComp = parseLeaveDays(lb.used_comp);
+        const balancesMissing = remainingPl == null && remainingCl == null && remainingComp == null;
+        const unavailable = shellStatus === "unavailable" || balancesMissing;
+        const staleNote = shellStatus === "stale" ? " · last loaded (offline)" : "";
 
-        // Remaining/Pending balances from backend (what's left to use)
-        const remainingPl = Number(lb.pl ?? 0);
-        const remainingCl = Number(lb.cl ?? 0);
-        const remainingComp = Number(lb.comp ?? 0);
-
-        // Total entitlements from backend (fixed totals - e.g., CL=8, PL=13)
-        const totalPl = Number(lb.total_pl ?? 0);
-        const totalCl = Number(lb.total_cl ?? 0);
-        // Used values from backend (how much has been used from total)
-        const usedCasual = Number(lb.used_cl ?? 0);
-        const usedPrivilege = Number(lb.used_pl ?? 0);
-        const usedComp = Number(lb.used_comp ?? 0);
-
-        const compSubtext = remainingComp > 0
-            ? `Available now · each valid 30 days`
-            : usedComp > 0
-                ? `Used ${usedComp} · no active comp-off`
-                : 'Earned on Sundays · valid 30 days';
+        const clSub = unavailable
+            ? "Leave balance unavailable"
+            : `Total ${formatLeaveDays(totalCl)}, Used ${formatLeaveDays(usedCasual)}${staleNote}`;
+        const plSub = unavailable
+            ? "Leave balance unavailable"
+            : `Total ${formatLeaveDays(totalPl)}, Used ${formatLeaveDays(usedPrivilege)}${staleNote}`;
+        const compSubtext = unavailable
+            ? "Leave balance unavailable"
+            : remainingComp > 0
+                ? `Available now · each valid 30 days${staleNote}`
+                : usedComp > 0
+                    ? `Used ${formatLeaveDays(usedComp)} · no active comp-off${staleNote}`
+                    : `Earned on Sundays · valid 30 days${staleNote}`;
 
         return [
-            { 
-                type: 'Casual Leave', 
-                value: remainingCl,  // Big number: Show remaining/pending (e.g., 5)
-                subtext: `Total ${totalCl}, Used ${usedCasual}`,  // Subtext: Total entitlement (8) and how much used
-                icon: <FiSun size={22} />, 
-                colorClass: 'green-card'
-            },
-            { 
-                type: 'Privilege Leave', 
-                value: remainingPl,  // Big number: Show remaining/pending (e.g., 11)
-                subtext: `Total ${totalPl}, Used ${usedPrivilege}`,  // Subtext: Total entitlement (13) and how much used
-                icon: <FiStar size={22} />, 
-                colorClass: 'blue-card'
+            {
+                type: "Casual Leave",
+                value: formatLeaveDays(remainingCl),
+                subtext: clSub,
+                icon: <FiSun size={22} />,
+                colorClass: "green-card",
             },
             {
-                type: 'Compensatory Leave',
-                value: remainingComp,
-                subtext: `${compSubtext} · tap for details`,
+                type: "Privilege Leave",
+                value: formatLeaveDays(remainingPl),
+                subtext: plSub,
+                icon: <FiStar size={22} />,
+                colorClass: "blue-card",
+            },
+            {
+                type: "Compensatory Leave",
+                value: formatLeaveDays(remainingComp),
+                subtext: `${compSubtext}${unavailable ? "" : " · tap for details"}`,
                 icon: <FiRefreshCw size={22} />,
-                colorClass: 'orange-card',
-                clickable: true,
-                onClick: () => navigate('/leaves/comp-off'),
-            }
+                colorClass: "orange-card",
+                clickable: !unavailable,
+                onClick: () => navigate("/leaves/comp-off"),
+            },
         ];
-    }, [userData.leave_balance, navigate]);
+    }, [userData.leave_balance, navigate, shellStatus]);
 
     // Fetch leave requests from backend
     const fetchLeaveRequests = async () => {
@@ -259,9 +261,13 @@ export const Leaves= () => {
     }, [refreshUserData]);
 
     const handleOpenApplyModal = useCallback(async () => {
+        if (!online) {
+            alert("You’re offline. Reconnect to apply leave.");
+            return;
+        }
         await Promise.all([fetchLeaveRequests(), refreshUserData({ force: true })]);
         setIsModalOpen(true);
-    }, [refreshUserData]);
+    }, [refreshUserData, online]);
 
     const handleCancelLeave = async (request) => {
         if (!request?.id || request.status !== "Pending") return;
@@ -290,7 +296,9 @@ export const Leaves= () => {
             alert("Leave request cancelled.");
         } catch (err) {
             console.error("Error cancelling leave:", err);
-            alert("Failed to cancel leave request. Please try again.");
+            alert(isLikelyNetworkError(err)
+                ? "You’re offline. Reconnect and try again."
+                : "Failed to cancel leave request. Please try again.");
         } finally {
             setCancellingId(null);
         }
@@ -353,7 +361,9 @@ export const Leaves= () => {
             return false;
         } catch (err) {
             console.error("Error applying leave:", err);
-            alert("Failed to apply leave. Please try again.");
+            alert(isLikelyNetworkError(err)
+                ? "You’re offline. Reconnect and try again."
+                : "Failed to apply leave. Please try again.");
             return false; // Return false to prevent modal from closing
         }
     };
@@ -426,7 +436,12 @@ export const Leaves= () => {
                                 </button>
                             )}
                         </div>
-                        <button className="apply-leave-button" onClick={handleOpenApplyModal}>
+                        <button
+                            className="apply-leave-button"
+                            onClick={handleOpenApplyModal}
+                            disabled={!online}
+                            title={!online ? "Reconnect to apply leave" : undefined}
+                        >
                             <FiPlus /> Apply Leave
                         </button>
                     </div>

@@ -3010,6 +3010,38 @@
   gap: 12px;
 }
 
+.accounts-file-picker-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.accounts-file-picker-row .accounts-file-picker {
+  flex: 1;
+  min-width: 0;
+}
+
+.accounts-file-picker__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 88px;
+  padding: 0 12px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.accounts-file-picker__clear:hover {
+  background: #fef2f2;
+}
+
 .accounts-file-picker {
   display: flex;
   align-items: center;

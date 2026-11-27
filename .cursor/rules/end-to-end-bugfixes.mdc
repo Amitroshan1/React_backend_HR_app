@@ -1,0 +1,16 @@
+---
+description: End-to-end, bug-free fixes for HRMS tickets
+alwaysApply: true
+---
+
+# End-to-end bug fixes
+
+When fixing a reported bug, treat the ticket as a full user flow, not a one-line patch.
+
+- Fix **every action on that screen** that shares the same root cause (e.g. Verify **and** Return to employee **and** Send back to Finance if they share one POST).
+- Trace **UI click → fetch headers/body → Flask parse → permission/status → DB write → success toast → timeline/status on reload**.
+- JSON POSTs must send `Content-Type: application/json`. FormData uploads must not. Server review endpoints must parse JSON even if the header is missing (`force=True` / raw body).
+- Do not leave sibling buttons, routes (`/api/accounts` vs `/api/finance`), or empty/error states unfixed.
+- Prefer a success path the tester can complete: enabled controls, real data, user-facing success copy, status/history updated.
+- After a fix, mentally re-run the ticket steps and the inverse (logout, refresh, other role, no file, missing remark).
+- Do not stop at a generic 400. If testers see a warning toast, match that exact message in code before changing it.

@@ -1,5 +1,9 @@
 import { authHeaders } from "../../utils/sensitiveDataAuth";
 
+export function jsonAuthHeaders() {
+    return authHeaders({ "Content-Type": "application/json" });
+}
+
 export async function parseApiResponse(res) {
     const text = await res.text();
     if (!text) return { ok: res.ok, data: {} };

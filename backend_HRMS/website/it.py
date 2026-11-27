@@ -64,6 +64,9 @@ def _stored_media(values, folder):
         return persist_itam_media(values, folder), None
     except ValueError as exc:
         return None, _err(str(exc))
+    except OSError:
+        current_app.logger.exception("IT photo store failed folder=%s", folder)
+        return None, _err("Photo could not be stored on the server. Try a smaller image.")
 
 
 def _shown_media(values):
@@ -179,6 +182,7 @@ def _record_transition_or_err(**kwargs):
     itam_transitions_v1 is ON. Returns Flask error tuple on validation failure.
     """
     from flask import current_app
+    from sqlalchemy.exc import OperationalError
     from .itam.transition_service import TransitionValidationError, record_transition
 
     try:
@@ -186,6 +190,8 @@ def _record_transition_or_err(**kwargs):
         return None
     except TransitionValidationError as exc:
         return _err(str(exc), 400)
+    except OperationalError as exc:
+        return _it_operational_err(exc)
 
 
 def _apply_lifecycle_or_err(
@@ -245,27 +251,33 @@ def _parse_date(value):
 
 
 def _ensure_parcel_name_columns_runtime():
-    """Best-effort runtime safety: add free-text parcel columns if missing."""
+    """Best-effort runtime safety: add free-text parcel / unit columns if missing."""
+    _ensure_it_write_schema()
+
+
+def _ensure_it_write_schema():
+    """Create missing IT write columns/tables so add-asset does not 500 on older DBs."""
     try:
         from sqlalchemy import inspect, text
+        from .models.it_models import ITAssetTransition, ITDeviceType
 
         insp = inspect(db.engine)
         tables = set(insp.get_table_names())
         dialect = db.engine.dialect.name
 
-        def addcol(table, col):
+        def addcol(table, col, coltype="VARCHAR(120) NULL"):
             if table not in tables:
                 return
             existing = {c["name"] for c in insp.get_columns(table)}
             if col in existing:
                 return
             if dialect == "postgresql":
-                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} VARCHAR(120) NULL')
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {coltype}')
             else:
-                stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} VARCHAR(120) NULL")
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
             with db.engine.begin() as conn:
                 conn.execute(stmt)
-            current_app.logger.info("Added missing parcel column %s.%s at runtime", table, col)
+            current_app.logger.info("Added missing IT column %s.%s at runtime", table, col)
 
         addcol("it_parcel_imports", "received_by_name")
         addcol("it_parcel_exports", "exported_by_name")
@@ -273,9 +285,48 @@ def _ensure_parcel_name_columns_runtime():
         addcol("it_parcel_export_items", "make")
         addcol("it_asset_units", "project_code")
         addcol("it_asset_units", "device_location")
-        addcol("it_asset_units", "device_type")
+        addcol("it_asset_units", "device_type", "VARCHAR(40) NULL")
+
+        trans = "it_asset_transitions"
+        if trans not in tables:
+            ITAssetTransition.__table__.create(bind=db.engine, checkfirst=True)
+            current_app.logger.info("Created table it_asset_transitions at runtime")
+        else:
+            addcol(trans, "inventory_category", "VARCHAR(60) NULL")
+        if "it_device_types" not in tables:
+            ITDeviceType.__table__.create(bind=db.engine, checkfirst=True)
+            current_app.logger.info("Created table it_device_types at runtime")
     except Exception as e:
-        current_app.logger.warning("parcel runtime column ensure skipped: %s", e)
+        current_app.logger.warning("IT write schema ensure skipped: %s", e)
+
+
+def _it_integrity_err(exc):
+    text = str(getattr(exc, "orig", exc) or exc).lower()
+    if "unit_code" in text or "uq_it_unit_tenant_code" in text:
+        return _err(
+            "This laptop/device code already exists. Use a unique serial / unit code.",
+            409,
+        )
+    if "asset_tag" in text or "uq_it_unit_tenant_tag" in text:
+        return _err("This asset tag already exists.", 409)
+    if "inventory_code" in text:
+        return _err("Could not allocate an inventory code. Please try again.", 409)
+    if "transition_code" in text:
+        return _err("Could not record the stock-in log. Please try again.", 409)
+    return _err("Could not save one or more assets. A unique field already exists.", 409)
+
+
+def _it_operational_err(exc):
+    current_app.logger.exception("IT write failed: %s", exc)
+    text = str(getattr(exc, "orig", exc) or exc).lower()
+    if "device_type" in text or "unknown column" in text or "no such column" in text:
+        return _err(
+            "Inventory is missing a required database field. Refresh the page and try again.",
+            500,
+        )
+    if "it_asset_transitions" in text:
+        return _err("Could not record the asset in the activity log. Please try again.", 500)
+    return _err("Could not save assets because of a database error. Please try again.", 500)
 
 
 def _current_admin():
@@ -322,6 +373,123 @@ def _resolve_admin_by_emp_key(emp_key):
     ).first()
 
 
+_INV_TAB_NAMES = (
+    "IT Assets",
+    "Fixed Assets",
+    "Transport Assets",
+    "Infrastructure Assets",
+    "Office Assets",
+)
+
+
+def _dead_log_line_category(category, inventory_item=None):
+    """Chip/category for Dead Assets — never store the inventory tab name as the line type."""
+    raw = (category or "").strip()
+    if not raw or raw in _INV_TAB_NAMES:
+        item_cat = (inventory_item.category or "").strip() if inventory_item is not None else ""
+        if item_cat and item_cat not in _INV_TAB_NAMES:
+            return item_cat
+        return "Hardware"
+    return raw
+
+
+def _record_dead_asset_log(
+    *,
+    inventory_item_id=None,
+    actor=None,
+    deleted_by_name=None,
+    asset_name=None,
+    category=None,
+    serial_number=None,
+    unit_code=None,
+    reason=None,
+    delete_code=None,
+    inventory_item=None,
+):
+    """History row for Dead Assets. Unit FK is always left empty so the unit can be deleted."""
+    item = inventory_item
+    if item is None and inventory_item_id:
+        item = it_get(ITInventoryItem, inventory_item_id)
+    name = (asset_name or (item.name if item is not None else None) or unit_code or "Asset")
+    name = str(name).strip() or "Asset"
+    serial = (serial_number or "").strip() or None
+    code = (unit_code or "").strip() or None
+    if code:
+        if not serial:
+            serial = code
+        elif code.lower() not in serial.lower():
+            serial = f"{serial} / {code}"
+    actor_name = (deleted_by_name or "").strip() or _admin_name(actor)
+    row = ITDeletedAssetLog(
+        tenant_id=get_current_tenant_id(),
+        delete_code=delete_code or _next_code("DEL", ITDeletedAssetLog, "delete_code"),
+        asset_unit_id=None,
+        inventory_item_id=item.id if item is not None else None,
+        deleted_by_admin_id=actor.id if actor else None,
+        deleted_by_name=actor_name,
+        asset_name=name,
+        category=_dead_log_line_category(category, item),
+        serial_number=serial,
+        reason=(reason or "").strip() or "Removed from Available Assets",
+        deleted_at=utc_now(),
+    )
+    db.session.add(row)
+    return row
+
+
+def _removed_it_category(category, inventory_item=None):
+    raw = _dead_log_line_category(category, inventory_item)
+    low = (raw or "").strip().lower()
+    if low.startswith("consumable"):
+        return "Consumables"
+    if low.startswith("accessor"):
+        return "Accessories"
+    if not raw or low == "stock":
+        return "Hardware"
+    return raw
+
+
+def _record_removed_from_it(
+    *,
+    inventory_item_id=None,
+    inventory_item=None,
+    actor=None,
+    owner_admin_id=None,
+    name=None,
+    category=None,
+    reason=None,
+    photos=None,
+    serial_number=None,
+    unit_code=None,
+):
+    """History row for Inventory Team → Removed From IT."""
+    item = inventory_item
+    if item is None and inventory_item_id:
+        item = it_get(ITInventoryItem, inventory_item_id)
+    display = (name or (item.name if item is not None else None) or unit_code or "Asset")
+    display = str(display).strip() or "Asset"
+    extra = " · ".join(
+        p for p in ((unit_code or "").strip(), (serial_number or "").strip()) if p
+    )
+    if extra and extra.lower() not in display.lower():
+        display = f"{display} ({extra})"[:150]
+    row = ITRemovedAsset(
+        tenant_id=get_current_tenant_id(),
+        removed_code=_next_code("RIT", ITRemovedAsset, "removed_code"),
+        asset_unit_id=None,
+        inventory_item_id=item.id if item is not None else None,
+        owner_admin_id=_existing_fk_id(Admin, owner_admin_id) if owner_admin_id else None,
+        removed_by_admin_id=actor.id if actor else None,
+        name=display,
+        category=_removed_it_category(category, item),
+        reason=(reason or "").strip() or "Removed by IT from Available Assets",
+        photos_json=photos or None,
+        removed_at=utc_now(),
+    )
+    db.session.add(row)
+    return row
+
+
 def _canonical_inv_cat(value):
     raw = (value or "").strip()
     if raw.lower() in ("office assets", "fixed assets"):
@@ -338,12 +506,52 @@ def _inv_cat_aliases(value):
 
 def _is_qty_managed_inventory(category, inventory_category=None):
     cat = (category or "").strip().lower()
-    if cat in ("accessories", "consumables", "stock"):
+    if cat in ("accessories", "consumables", "accessory", "consumable", "stock") or cat.startswith(
+        ("accessor", "consumable")
+    ):
         return True
     inv = _canonical_inv_cat(inventory_category)
     if inv in ("Fixed Assets", "Infrastructure Assets"):
-        return cat == "stock" or cat in ("accessories", "consumables")
+        return cat == "stock" or cat.startswith(("accessor", "consumable"))
     return False
+
+
+def _qty_managed_counts(item):
+    """Bucket counts for accessories/consumables. Restore Available when it was wiped to 0."""
+    assigned = max(0, int(item.assigned_quantity or 0))
+    not_working = max(0, int(item.not_working_quantity or 0))
+    repair = max(0, int(item.repair_quantity or 0))
+    available = max(0, int(item.available_quantity or 0))
+    total = max(0, int(item.total_quantity or 0))
+    if not _is_qty_managed_inventory(item.category, getattr(item, "inventory_category", None)):
+        return total, available, assigned, not_working, repair
+    reserved = assigned + not_working + repair
+    leftover = max(0, total - reserved)
+    if available < leftover:
+        available = leftover
+    if total < reserved + available:
+        total = reserved + available
+    return total, available, assigned, not_working, repair
+
+
+def _apply_qty_managed_counts(item):
+    """Write restored qty buckets onto the item (in-memory). True when anything changed."""
+    if item is None or not _is_qty_managed_inventory(item.category, getattr(item, "inventory_category", None)):
+        return False
+    total, available, assigned, not_working, repair = _qty_managed_counts(item)
+    dirty = (
+        int(item.total_quantity or 0) != total
+        or int(item.available_quantity or 0) != available
+        or int(item.assigned_quantity or 0) != assigned
+        or int(item.not_working_quantity or 0) != not_working
+        or int(item.repair_quantity or 0) != repair
+    )
+    item.total_quantity = total
+    item.available_quantity = available
+    item.assigned_quantity = assigned
+    item.not_working_quantity = not_working
+    item.repair_quantity = repair
+    return dirty
 
 
 def _coerce_optional_int(value):
@@ -419,6 +627,7 @@ def _effective_inventory_category(item):
 
 
 def _serialize_inventory_item(item, summary=False):
+    _apply_qty_managed_counts(item)
     payload = {
         "id": item.id,
         "inventory_code": item.inventory_code,
@@ -617,6 +826,62 @@ def _serialize_parcel_import(i):
     }
 
 
+def _parcel_nz(*values):
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text and text != "—":
+            return text
+    return ""
+
+
+def _serialize_parcel_export_item(it):
+    unit = it.asset_unit
+    inv = unit.inventory_item if unit else None
+    hw_type = _parcel_nz(getattr(unit, "hw_type", None), getattr(inv, "hw_type", None))
+    serial = _parcel_nz(it.serial_number, getattr(unit, "serial_number", None), getattr(unit, "asset_tag", None))
+    brand = _parcel_nz(it.brand, getattr(unit, "brand", None))
+    make = _parcel_nz(it.make, getattr(unit, "make", None))
+    model = _parcel_nz(it.model, getattr(unit, "model", None))
+    name = _parcel_nz(it.asset_name, getattr(unit, "asset_name", None), getattr(inv, "name", None))
+    unit_code = _parcel_nz(getattr(unit, "unit_code", None))
+    imei1 = _parcel_nz(getattr(unit, "imei1", None))
+    imei2 = _parcel_nz(getattr(unit, "imei2", None))
+    laptop_code = ""
+    if hw_type.lower() == "laptop":
+        laptop_code = _parcel_nz(model, unit_code)
+    photo_raw = it.individual_photo_json
+    if isinstance(photo_raw, list):
+        photo_raw = photo_raw[0] if photo_raw else None
+    photo = _shown_media(photo_raw) if photo_raw else None
+    if not photo and unit and unit.photos_json:
+        unit_photos = _shown_media(unit.photos_json or [])
+        photo = unit_photos[0] if unit_photos else None
+    purchase = None
+    if inv and inv.purchase_date:
+        purchase = inv.purchase_date.isoformat()
+    return {
+        "id": it.id,
+        "assetUnitId": it.asset_unit_id,
+        "assetName": name,
+        "serialNo": serial,
+        "brand": brand,
+        "make": make,
+        "model": model,
+        "hwType": hw_type,
+        "itemCategory": _parcel_nz(getattr(unit, "category", None), getattr(inv, "category", None)),
+        "imei1": imei1,
+        "imei2": imei2,
+        "imei": imei1 or imei2,
+        "unitCode": unit_code,
+        "laptopCode": laptop_code,
+        "projectCode": _parcel_nz(getattr(unit, "project_code", None)),
+        "purchaseDate": purchase,
+        "individualPhoto": photo,
+    }
+
+
 def _serialize_parcel_export(e):
     return {
         "id": e.id,
@@ -629,24 +894,7 @@ def _serialize_parcel_export(e):
         "photos": _shown_media(e.parcel_photos_json or []),
         "inventoryCategory": (e.inventory_category or "").strip() or None,
         "count": len(e.items),
-        "assets": [
-            {
-                "id": it.id,
-                "assetUnitId": it.asset_unit_id,
-                "assetName": it.asset_name,
-                "serialNo": it.serial_number,
-                "brand": it.brand,
-                "make": (it.make or "").strip()
-                or ((it.asset_unit.make or "").strip() if it.asset_unit else ""),
-                "model": it.model,
-                "individualPhoto": _shown_media(
-                    (it.individual_photo_json or [None])[0]
-                    if isinstance(it.individual_photo_json, list)
-                    else it.individual_photo_json
-                ),
-            }
-            for it in e.items
-        ],
+        "assets": [_serialize_parcel_export_item(it) for it in e.items],
     }
 
 
@@ -903,6 +1151,8 @@ def list_employee_assigned_assets():
 def _recalc_inventory_counts(inventory_id):
     item = it_get(ITInventoryItem, inventory_id)
     if not item:
+        return
+    if _is_qty_managed_inventory(item.category, item.inventory_category):
         return
     if item.category.lower() == "software":
         seats = [
@@ -1221,6 +1471,7 @@ def inventory_item_options():
 @it_bp.route("/inventory/items", methods=["POST"])
 @jwt_required()
 def create_inventory_item():
+    _ensure_it_write_schema()
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     category = (data.get("category") or "").strip()
@@ -1258,6 +1509,7 @@ def create_inventory_item():
     if photo_err or receipt_err:
         return photo_err or receipt_err
     item = ITInventoryItem(
+        tenant_id=get_current_tenant_id(),
         inventory_code=data.get("inventory_code") or _next_code("INV", ITInventoryItem, "inventory_code"),
         name=name,
         category=category,
@@ -1275,26 +1527,36 @@ def create_inventory_item():
         created_by_admin_id=current_admin.id if current_admin else None,
     )
     db.session.add(item)
-    db.session.flush()
+    try:
+        db.session.flush()
 
-    from .itam.activity_log_scope import should_log_catalog_receive
+        from .itam.activity_log_scope import should_log_catalog_receive
 
-    if should_log_catalog_receive(is_qty_managed):
-        receive_remark = notes or f"Added {name} to {inventory_category}"
-        err = _record_transition_or_err(
-            action_code="RECEIVE",
-            remark=receive_remark,
-            actor_admin_id=current_admin.id if current_admin else None,
-            inventory_item_id=item.id,
-            from_status=None,
-            to_status="available",
-            related={"kind": "catalog_create", "inventory_category": inventory_category},
-        )
-        if err:
-            db.session.rollback()
-            return err
+        if should_log_catalog_receive(is_qty_managed):
+            receive_remark = notes or f"Added {name} to {inventory_category}"
+            err = _record_transition_or_err(
+                action_code="RECEIVE",
+                remark=receive_remark,
+                actor_admin_id=current_admin.id if current_admin else None,
+                inventory_item_id=item.id,
+                from_status=None,
+                to_status="available",
+                related={"kind": "catalog_create", "inventory_category": inventory_category},
+            )
+            if err:
+                db.session.rollback()
+                return err
 
-    db.session.commit()
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        from sqlalchemy.exc import IntegrityError, OperationalError
+
+        if isinstance(e, IntegrityError):
+            return _it_integrity_err(e)
+        if isinstance(e, OperationalError):
+            return _it_operational_err(e)
+        raise
     return _ok({"item": _serialize_inventory_item(item)}, "Inventory item created", 201)
 
 
@@ -1304,7 +1566,19 @@ def get_inventory_item(item_id):
     item = it_get(ITInventoryItem, item_id)
     if not item:
         return _err("Inventory item not found", 404)
-    return _ok({"item": _serialize_inventory_item(item)})
+    if _apply_qty_managed_counts(item):
+        db.session.commit()
+    units = (
+        it_query(ITAssetUnit)
+        .options(selectinload(ITAssetUnit.assigned_to_admin))
+        .filter(ITAssetUnit.inventory_item_id == item.id)
+        .order_by(ITAssetUnit.id.desc())
+        .all()
+    )
+    return _ok({
+        "item": _serialize_inventory_item(item),
+        "units": serialize_listed_units(units),
+    })
 
 
 @it_bp.route("/inventory/items/<int:item_id>", methods=["PATCH"])
@@ -1354,6 +1628,74 @@ def update_inventory_item(item_id):
                 return _err(f"{key} must be an integer")
     db.session.commit()
     return _ok({"item": _serialize_inventory_item(item)}, "Inventory item updated")
+
+
+@it_bp.route("/inventory/items/<int:item_id>/quantity-status", methods=["POST"])
+@jwt_required()
+def inventory_quantity_status(item_id):
+    """Move available quantity to Repair, Not Working, or Dead Assets for qty-managed lines."""
+    item = it_get(ITInventoryItem, item_id)
+    if not item:
+        return _err("Inventory item not found", 404)
+    if not _is_qty_managed_inventory(item.category, item.inventory_category):
+        return _err("This asset is tracked as individual units. Use Repair on a unit.")
+    _apply_qty_managed_counts(item)
+    data = request.get_json(silent=True) or {}
+    raw_action = str(data.get("action") or data.get("status") or "").strip().lower()
+    if raw_action in ("repair", "in-repair", "in_repair"):
+        action = "repair"
+    elif raw_action in ("notworking", "not_working", "not-working"):
+        action = "notWorking"
+    elif raw_action in ("removed", "dead", "delete"):
+        action = "removed"
+    else:
+        return _err("action must be repair, notWorking, or removed")
+    try:
+        qty = int(data.get("quantity") or 1)
+    except (TypeError, ValueError):
+        return _err("quantity must be an integer")
+    available = int(item.available_quantity or 0)
+    if available < 1:
+        return _err("No available quantity left for this action.")
+    qty = max(1, min(qty, available))
+    remark = (data.get("remark") or data.get("notes") or data.get("reason") or "").strip()
+    if action == "repair":
+        item.repair_quantity = int(item.repair_quantity or 0) + qty
+        item.available_quantity = available - qty
+        message = "Sent to Repair."
+    elif action == "notWorking":
+        item.not_working_quantity = int(item.not_working_quantity or 0) + qty
+        item.available_quantity = available - qty
+        message = "Marked Not Working."
+    else:
+        item.total_quantity = max(0, int(item.total_quantity or 0) - qty)
+        item.available_quantity = available - qty
+        message = "Moved to Dead Assets."
+        actor = _current_admin()
+        _record_dead_asset_log(
+            inventory_item_id=item.id,
+            inventory_item=item,
+            actor=actor,
+            asset_name=item.name,
+            category=item.category,
+            serial_number=f"qty x{qty}",
+            reason=remark or f"Dead quantity marked: {qty}",
+        )
+        _record_removed_from_it(
+            inventory_item_id=item.id,
+            inventory_item=item,
+            actor=actor,
+            name=item.name,
+            category=item.category,
+            reason=remark or f"Removed by IT (qty x{qty})",
+        )
+    if remark:
+        label = "Repair" if action == "repair" else ("Not Working" if action == "notWorking" else "Removed")
+        note_line = f"[{label} x{qty}] {remark}"
+        existing = (item.notes or "").strip()
+        item.notes = "\n".join([p for p in (existing, note_line) if p])[:500]
+    db.session.commit()
+    return _ok({"item": _serialize_inventory_item(item), "moved": qty, "action": action}, message)
 
 
 @it_bp.route("/units", methods=["GET"])
@@ -1504,12 +1846,14 @@ def _device_type_names():
 @it_bp.route("/device-types", methods=["GET"])
 @jwt_required()
 def list_device_types():
+    _ensure_it_write_schema()
     return _ok({"deviceTypes": _device_type_names()})
 
 
 @it_bp.route("/device-types", methods=["POST"])
 @jwt_required()
 def create_device_type():
+    _ensure_it_write_schema()
     data = request.get_json(silent=True) or {}
     name = _normalize_device_type(data.get("name") or data.get("device_type"))
     if not name:
@@ -1531,6 +1875,7 @@ def _new_asset_unit_code(hw_type=None) -> str:
 @it_bp.route("/units/bulk", methods=["POST"])
 @jwt_required()
 def create_units_bulk():
+    _ensure_it_write_schema()
     data = request.get_json(silent=True) or {}
     inventory_id = data.get("inventory_item_id")
     units = data.get("units") or []
@@ -1650,13 +1995,12 @@ def create_units_bulk():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        from sqlalchemy.exc import IntegrityError
+        from sqlalchemy.exc import IntegrityError, OperationalError
 
         if isinstance(e, IntegrityError):
-            return _err(
-                "Could not save one or more assets. Please try again.",
-                409,
-            )
+            return _it_integrity_err(e)
+        if isinstance(e, OperationalError):
+            return _it_operational_err(e)
         raise
     return _ok(
         {"units": [_serialize_asset_unit(u) for u, _ in created]},
@@ -1831,10 +2175,34 @@ def delete_unit(unit_id):
         synchronize_session=False,
     )
 
+    item = it_get(ITInventoryItem, inv_id) if inv_id else None
+    dead_log = _record_dead_asset_log(
+        inventory_item_id=inv_id,
+        inventory_item=item,
+        actor=actor,
+        asset_name=unit.asset_name or (item.name if item is not None else None),
+        category=unit.category or (item.category if item is not None else None),
+        serial_number=unit.serial_number,
+        unit_code=unit.unit_code,
+        reason=fields.get("remark") or fields.get("notes"),
+    )
+    _record_removed_from_it(
+        inventory_item_id=inv_id,
+        inventory_item=item,
+        actor=actor,
+        owner_admin_id=unit.assigned_to_admin_id,
+        name=unit.asset_name or (item.name if item is not None else None),
+        category=unit.category or (item.category if item is not None else None),
+        reason=fields.get("remark") or fields.get("notes"),
+        photos=unit.photos_json if isinstance(unit.photos_json, list) else None,
+        serial_number=unit.serial_number,
+        unit_code=unit.unit_code,
+    )
+
     db.session.delete(unit)
     _recalc_inventory_counts(inv_id)
     db.session.commit()
-    return _ok(message="Unit deleted")
+    return _ok({"log": _serialize_deleted_log(dead_log)}, "Unit deleted")
 
 
 @it_bp.route("/assignments/units", methods=["POST"])
@@ -2072,6 +2440,7 @@ _LICENSE_SORTS = {
 @it_bp.route("/software/licenses/bulk", methods=["POST"])
 @jwt_required()
 def create_software_licenses():
+    _ensure_it_write_schema()
     data = request.get_json(silent=True) or {}
     inventory_id = data.get("inventory_item_id")
     name = (data.get("name") or "").strip()
@@ -2117,7 +2486,17 @@ def create_software_licenses():
             db.session.rollback()
             return err
     _recalc_inventory_counts(inventory_id)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        from sqlalchemy.exc import IntegrityError, OperationalError
+
+        if isinstance(e, IntegrityError):
+            return _it_integrity_err(e)
+        if isinstance(e, OperationalError):
+            return _it_operational_err(e)
+        raise
     return _ok({"licenses": [_serialize_license(i) for i in created]}, "Software licenses created", 201)
 
 
@@ -3231,6 +3610,7 @@ def create_removed_asset():
     if err:
         return err
     r = ITRemovedAsset(
+        tenant_id=get_current_tenant_id(),
         removed_code=data.get("removed_code") or _next_code("RIT", ITRemovedAsset, "removed_code"),
         asset_unit_id=_existing_fk_id(ITAssetUnit, data.get("asset_unit_id")),
         inventory_item_id=_existing_fk_id(ITInventoryItem, data.get("inventory_item_id")),
@@ -3308,19 +3688,23 @@ def create_deleted_log():
     inventory_item_id = _existing_fk_id(ITInventoryItem, data.get("inventory_item_id"))
     deleted_by_admin_id = _existing_fk_id(Admin, data.get("deleted_by_admin_id"))
 
-    d = ITDeletedAssetLog(
-        delete_code=data.get("delete_code") or _next_code("DEL", ITDeletedAssetLog, "delete_code"),
-        asset_unit_id=asset_unit_id,
+    item = it_get(ITInventoryItem, inventory_item_id) if inventory_item_id else None
+    actor = _current_admin()
+    d = _record_dead_asset_log(
         inventory_item_id=inventory_item_id,
-        deleted_by_admin_id=deleted_by_admin_id,
+        inventory_item=item,
+        actor=actor if deleted_by_admin_id else actor,
         deleted_by_name=(data.get("deleted_by_name") or "").strip() or None,
         asset_name=data.get("asset_name"),
         category=data.get("category"),
         serial_number=data.get("serial_number"),
         reason=data.get("reason"),
-        deleted_at=_parse_dt(data.get("deleted_at")) or utc_now(),
+        delete_code=data.get("delete_code") or None,
     )
-    db.session.add(d)
+    if asset_unit_id:
+        d.asset_unit_id = asset_unit_id
+    if deleted_by_admin_id:
+        d.deleted_by_admin_id = deleted_by_admin_id
     try:
         db.session.commit()
     except Exception as e:
@@ -3329,10 +3713,14 @@ def create_deleted_log():
 
         # Stale unit/inventory ids from client cache — keep the history row without FKs.
         if isinstance(e, IntegrityError):
-            d.asset_unit_id = None
-            d.inventory_item_id = None
-            d.deleted_by_admin_id = None
-            db.session.add(d)
+            d = _record_dead_asset_log(
+                actor=actor,
+                deleted_by_name=(data.get("deleted_by_name") or "").strip() or None,
+                asset_name=data.get("asset_name"),
+                category=data.get("category"),
+                serial_number=data.get("serial_number"),
+                reason=data.get("reason"),
+            )
             db.session.commit()
         else:
             raise
@@ -3619,11 +4007,22 @@ def create_parcel_export():
     inventory_export_qty = {}
     for it in items:
         asset_unit_id, inventory_item_id = _resolve_parcel_export_item_ids(it)
+        unit_snapshot = it_get(ITAssetUnit, asset_unit_id) if asset_unit_id else None
         make_val = (it.get("make") or "").strip() or None
-        if not make_val and asset_unit_id:
-            unit_for_make = it_get(ITAssetUnit, asset_unit_id)
-            if unit_for_make and unit_for_make.make:
-                make_val = (unit_for_make.make or "").strip() or None
+        if not make_val and unit_snapshot and unit_snapshot.make:
+            make_val = (unit_snapshot.make or "").strip() or None
+        brand_val = (it.get("brand") or "").strip() or None
+        if not brand_val and unit_snapshot and unit_snapshot.brand:
+            brand_val = (unit_snapshot.brand or "").strip() or None
+        model_val = (it.get("model") or "").strip() or None
+        if not model_val and unit_snapshot and unit_snapshot.model:
+            model_val = (unit_snapshot.model or "").strip() or None
+        serial_val = (it.get("serial_number") or it.get("serialNo") or "").strip() or None
+        if (not serial_val or serial_val == "—") and unit_snapshot:
+            serial_val = (unit_snapshot.serial_number or unit_snapshot.asset_tag or "").strip() or None
+        asset_name = (it.get("asset_name") or it.get("assetName") or "").strip()
+        if not asset_name and unit_snapshot:
+            asset_name = (unit_snapshot.asset_name or "").strip()
         photo, photo_err = _stored_media(
             it.get("individual_photo") or it.get("individualPhoto"), "parcels"
         )
@@ -3633,11 +4032,11 @@ def create_parcel_export():
         export_item = ITParcelExportItem(
             parcel_export_id=row.id,
             asset_unit_id=asset_unit_id,
-            asset_name=(it.get("asset_name") or it.get("assetName") or "").strip(),
-            serial_number=it.get("serial_number") or it.get("serialNo"),
-            brand=it.get("brand"),
+            asset_name=asset_name,
+            serial_number=serial_val,
+            brand=brand_val,
             make=make_val,
-            model=it.get("model"),
+            model=model_val,
             individual_photo_json=photo,
         )
         if not export_item.asset_name:

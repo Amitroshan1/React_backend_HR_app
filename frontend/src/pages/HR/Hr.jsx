@@ -3257,7 +3257,15 @@ if (view === 'noc_requests') {
                           </tr>
                         </thead>
                         <tbody>
-                          {searchResults.map((emp) => {
+                          {searchResults.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="hr-search-empty">
+                                {searchLoading
+                                  ? "Searching…"
+                                  : `No employee exists for ${selectedEmployeeType || "this department"} in ${selectedCircle || "this circle"}. Select a different department or circle and search again.`}
+                              </td>
+                            </tr>
+                          ) : searchResults.map((emp) => {
                             const employeeKey = emp.id ?? emp.email;
                             return (
                               <tr key={employeeKey}>

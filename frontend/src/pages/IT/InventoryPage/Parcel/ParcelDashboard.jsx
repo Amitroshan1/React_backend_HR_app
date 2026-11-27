@@ -62,11 +62,11 @@ function ModalHeader({ title, subtitle, onClose, titleId }) {
 }
 
 function ModalDetailRow({ label, value }) {
-  if (!value) return null;
+  const shown = value == null || String(value).trim() === "" ? "—" : value;
   return (
     <div className="pcl-modal-row">
       <span className="pcl-modal-label">{label}</span>
-      <span className="pcl-modal-value">{value}</span>
+      <span className="pcl-modal-value">{shown}</span>
     </div>
   );
 }
@@ -200,12 +200,20 @@ function DetailsModal({ asset, onClose }) {
                       <div className="pcl-sn-asset-name">
                         {getParcelAssetDisplayName(a, asset.category)}
                       </div>
-                      {formatParcelBrandModel(a, asset.category) !== "—" && (
-                        <div className="pcl-sn-asset-brand">
-                          {formatParcelBrandModel(a, asset.category)}
-                        </div>
-                      )}
-                      <span className="pcl-sn-code">{a.serialNo || "—"}</span>
+                      <div className="pcl-sn-asset-brand">
+                        {formatParcelBrandModel(a, asset.category)}
+                      </div>
+                      {a.hwType ? <div className="pcl-sn-asset-meta">Type: {a.hwType}</div> : null}
+                      {a.laptopCode ? <div className="pcl-sn-asset-meta">Laptop code: {a.laptopCode}</div> : null}
+                      {a.imei || a.imei1 ? (
+                        <div className="pcl-sn-asset-meta">IMEI: {a.imei || a.imei1}</div>
+                      ) : null}
+                      {a.unitCode ? <div className="pcl-sn-asset-meta">Unit code: {a.unitCode}</div> : null}
+                      {a.projectCode ? <div className="pcl-sn-asset-meta">Project: {a.projectCode}</div> : null}
+                      {a.purchaseDate ? (
+                        <div className="pcl-sn-asset-meta">Purchase: {formatDate(a.purchaseDate)}</div>
+                      ) : null}
+                      <span className="pcl-sn-code">{a.serialNo || a.unitCode || "—"}</span>
                     </div>
                   </li>
                 ))}

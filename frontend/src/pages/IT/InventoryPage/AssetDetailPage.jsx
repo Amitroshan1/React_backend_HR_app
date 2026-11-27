@@ -20,12 +20,15 @@ import {
   getSoftwareInventory,
   notifyInventoryChange,
   setUnitStatusAPI,
+  syncDeletedLogsFromAPI,
   syncITDataFromAPI,
+  syncRemovedITFromAPI,
   toLocalInventory,
   toLocalUnit,
   toastITApiFailure,
   updateAssetUnitAPI,
   updateInventoryItemAPI,
+  updateInventoryQuantityStatusAPI,
 } from "../Data";
 import {
   canonicalizeInventoryCategory,
@@ -33,9 +36,10 @@ import {
   getMobileTabletHardwareFields,
   getUnitBrandModelDisplay,
   isMobileTabletHwType,
-  isStockInventoryCategory,
+  isQtyManagedItemCategory,
   isValidInventoryCategory,
   isVehicleInventoryCategory,
+  qtyManagedAvailable,
 } from "../inventoryCategories";
 import { AssetReviewsModal } from "../itam/AssetReviewsPanel";
 import AssetHistoryTimeline from "../itam/AssetHistoryTimeline";
@@ -64,6 +68,13 @@ export function inventoryAssetPath(itemId, category, extras = {}) {
   });
   const q = params.toString();
   return `${BASE}/item/${itemId}${q ? `?${q}` : ""}`;
+}
+
+function deadAssetsPath(category) {
+  const params = new URLSearchParams();
+  if (category) params.set("cat", category);
+  const q = params.toString();
+  return `${BASE}/removed-assets${q ? `?${q}` : ""}`;
 }
 
 function blankForm() {
@@ -164,10 +175,14 @@ export default function AssetDetailPage() {
         fetchUnitsForInventoryAPI(itemId).catch(() => ({ units: [] })),
       ]);
       const localItem = toLocalInventory(itemRes.item || itemRes);
-      const localUnits = (unitsRes.units || []).map(toLocalUnit);
+      const fromItem = Array.isArray(itemRes.units) ? itemRes.units : [];
+      const fromList = Array.isArray(unitsRes.units) ? unitsRes.units : [];
+      const localUnits = (fromItem.length ? fromItem : fromList).map(toLocalUnit);
       setItem(localItem);
       setUnits(localUnits);
-      const hintIdx = localUnits.findIndex((u) => String(u.id) === String(unitHint));
+      const hintIdx = localUnits.findIndex(
+        (u) => String(u.id) === String(unitHint) || String(u.assetId) === String(unitHint),
+      );
       const idx = hintIdx >= 0 ? hintIdx : 0;
       setUnitIndex(idx);
       setForm(formFrom(localItem, localUnits[idx] || null));
@@ -193,8 +208,8 @@ export default function AssetDetailPage() {
   const inventoryCategory = canonicalizeInventoryCategory(
     item?.inventoryCategory || catHint || "",
   );
-  const stockMode = String(item?.category || "").toLowerCase() === "stock"
-    || isStockInventoryCategory(inventoryCategory);
+  const stockMode = String(item?.category || "").toLowerCase() === "stock";
+  const qtyManaged = stockMode || isQtyManagedItemCategory(item?.category);
   const software = String(item?.category || "").toLowerCase() === "software";
   const mobile = isMobileTabletHwType(item?.hwType);
   const hwFields = mobile
@@ -267,7 +282,7 @@ export default function AssetDetailPage() {
       const photosToSave = draftPhotosRef.current;
       const shouldSavePhotos = photoDirtyRef.current;
       const persist = async () => {
-        await updateInventoryItemAPI(item.id, {
+        const itemRes = await updateInventoryItemAPI(item.id, {
           name,
           vendor: form.vendor.trim() || null,
           location: form.location.trim() || null,
@@ -275,9 +290,10 @@ export default function AssetDetailPage() {
           purchase_date: form.purchaseDate || null,
           ...(shouldSavePhotos ? { photos: photosToSave } : {}),
         });
+        let unitRes = null;
         if (unit?.id) {
           const modelValue = mobile ? (form.make || form.model) : form.model;
-          await updateAssetUnitAPI(unit.id, {
+          unitRes = await updateAssetUnitAPI(unit.id, {
             asset_name: name,
             brand: form.brand.trim() || null,
             make: form.make.trim() || null,
@@ -291,20 +307,29 @@ export default function AssetDetailPage() {
             ...(shouldSavePhotos ? { photos: photosToSave } : {}),
           });
         }
+        return { itemRes, unitRes };
       };
-      if (shouldSavePhotos) {
-        await runUpload("Saving photos…", persist);
-      } else {
-        await persist();
+      const { itemRes, unitRes } = shouldSavePhotos
+        ? await runUpload("Saving photos…", persist)
+        : await persist();
+      const savedItem = itemRes?.item ? toLocalInventory(itemRes.item) : { ...item, name, notes: form.notes.trim() };
+      const savedUnit = unitRes?.unit ? toLocalUnit(unitRes.unit) : unit;
+      if (savedItem) setItem(savedItem);
+      if (savedUnit?.id) {
+        setUnits((prev) => {
+          const next = prev.map((u) => (String(u.id) === String(savedUnit.id) ? { ...u, ...savedUnit } : u));
+          return next.some((u) => String(u.id) === String(savedUnit.id)) ? next : [savedUnit, ...prev];
+        });
       }
+      setForm(formFrom(savedItem, savedUnit || null));
       await syncITDataFromAPI().catch(() => {});
       notifyInventoryChange();
       toast.success("Asset saved.");
       setEditing(false);
-      if (startInEdit) {
-        navigate(inventoryAssetPath(item.id, inventoryCategory), { replace: true });
-        return;
-      }
+      navigate(
+        inventoryAssetPath(item.id, inventoryCategory, savedUnit?.id ? { unit: savedUnit.id } : {}),
+        { replace: true },
+      );
       await load();
     } catch (err) {
       if (!isUploadAbort(err)) toastITApiFailure(err, "Could not save this asset.");
@@ -315,8 +340,61 @@ export default function AssetDetailPage() {
 
   const handleStatus = async (actionKey) => {
     if (software) return;
-    if (!unit && stockMode) {
-      toast.info("Use the quantity actions on the inventory list for stock lines.");
+    const availableQty = qtyManaged
+      ? qtyManagedAvailable(item)
+      : Number(item.availableQuantity ?? item.available ?? 0);
+    if (qtyManaged && !unit?.id) {
+      if (availableQty < 1) {
+        toast.error("No available quantity left for this action.");
+        return;
+      }
+      if (actionKey === "removed") {
+        const remarkResult = await requestRemark("RETIRE", {
+          force: true,
+          assetLabel: item.name,
+          subtitle: "Remove / retire from inventory",
+          defaultReasonCode: "PERMANENT_DELETE",
+          defaultConditionGrade: "Fail",
+        });
+        if (remarkResult === null) return;
+        try {
+          const res = await updateInventoryQuantityStatusAPI(item.id, {
+            action: "removed",
+            quantity: 1,
+            ...remarkPayload(remarkResult),
+          });
+          await syncITDataFromAPI();
+          await syncDeletedLogsFromAPI().catch(() => {});
+          await syncRemovedITFromAPI({ quiet: true }).catch(() => {});
+          notifyInventoryChange();
+          toast.success(res?.message || "Moved to Dead Assets.");
+          navigate(deadAssetsPath(inventoryCategory));
+        } catch (err) {
+          toastITApiFailure(err, "Could not remove this asset.");
+        }
+        return;
+      }
+      const remarkResult = await requestRemark(actionCodeForStatusChange(actionKey, "available"), {
+        force: true,
+        assetLabel: item.name,
+        subtitle: actionKey === "repair" ? "Mark as In Repair" : "Mark as Not Working",
+      });
+      if (remarkResult === null) return;
+      try {
+        const res = await updateInventoryQuantityStatusAPI(item.id, {
+          action: actionKey === "repair" ? "repair" : "notWorking",
+          quantity: 1,
+          ...remarkPayload(remarkResult),
+        });
+        const saved = res?.item ? toLocalInventory(res.item) : null;
+        if (saved) setItem(saved);
+        await syncITDataFromAPI();
+        notifyInventoryChange();
+        toast.success(actionKey === "repair" ? "Sent to Repair." : "Marked Not Working.");
+        await load();
+      } catch (err) {
+        toastITApiFailure(err, "Could not update this asset.");
+      }
       return;
     }
     if (!unit?.id) {
@@ -335,9 +413,11 @@ export default function AssetDetailPage() {
       try {
         await deleteAssetUnitAPI(unit.id, remarkPayload(remarkResult));
         await syncITDataFromAPI();
+        await syncDeletedLogsFromAPI().catch(() => {});
+        await syncRemovedITFromAPI({ quiet: true }).catch(() => {});
         notifyInventoryChange();
-        toast.success(`Removed "${item.name}".`);
-        navigate(backTo);
+        toast.success("Moved to Dead Assets.");
+        navigate(deadAssetsPath(inventoryCategory));
       } catch (err) {
         toastITApiFailure(err, "Could not remove this asset.");
       }
@@ -487,21 +567,21 @@ export default function AssetDetailPage() {
                 form={form}
                 setField={setField}
                 rows={[
-                  { key: "name", label: "Name", value: item.name },
-                  { key: "notes", label: "Notes", value: item.notes || "—", textarea: true },
+                  { key: "name", label: "Name", value: item.name || form.name },
+                  { key: "notes", label: "Notes", value: item.notes || form.notes || "—", textarea: true },
                 ]}
               />
-            ) : stockMode && !unit ? (
+            ) : qtyManaged && !unit ? (
               <FieldGrid
                 editing={editing}
                 form={form}
                 setField={setField}
                 rows={[
-                  { key: "name", label: "Name", value: item.name },
-                  { key: "vendor", label: "Supplier", value: item.vendor || "—" },
-                  { key: "purchaseDate", label: "Purchase date", value: item.purchaseDate || "—", type: "date" },
-                  { key: "location", label: "Location", value: item.location || "—" },
-                  { key: "notes", label: "Remarks", value: item.notes || "—", textarea: true },
+                  { key: "name", label: "Name", value: item.name || form.name },
+                  { key: "vendor", label: "Supplier", value: item.vendor || form.vendor || "—" },
+                  { key: "purchaseDate", label: "Purchase date", value: item.purchaseDate || form.purchaseDate || "—", type: "date" },
+                  { key: "location", label: "Location", value: item.location || form.location || "—" },
+                  { key: "notes", label: "Remarks", value: item.notes || form.notes || "—", textarea: true },
                 ]}
               />
             ) : mobile ? (
@@ -510,16 +590,16 @@ export default function AssetDetailPage() {
                 form={form}
                 setField={setField}
                 rows={[
-                  { key: "name", label: "Asset name", value: item.name },
-                  { key: "projectCode", label: hwFields.projectCode.label, value: unit?.projectCode || "—" },
-                  { key: "brand", label: hwFields.brand.label, value: unit?.brand || brandModel.primary },
-                  { key: "make", label: hwFields.make.label, value: unit?.make || unit?.model || "—" },
-                  { key: "imei1", label: "IMEI 1", value: unit?.imei1 || "—", mono: true },
-                  { key: "imei2", label: "IMEI 2", value: unit?.imei2 || "—", mono: true },
-                  { key: "serialNumber", label: hwFields.serialNumber.label, value: unit?.serialNumber || "—", mono: true },
-                  { key: "deviceType", label: "Device Type", value: unit?.deviceType || "—", selectOptions: deviceTypes },
-                  { key: "deviceLocation", label: hwFields.deviceLocation.label, value: unit?.deviceLocation || "—" },
-                  { key: "notes", label: "Comment", value: item.notes || "—", textarea: true },
+                  { key: "name", label: "Asset name", value: item.name || form.name },
+                  { key: "projectCode", label: hwFields.projectCode.label, value: unit?.projectCode || form.projectCode || "—" },
+                  { key: "brand", label: hwFields.brand.label, value: unit?.brand || form.brand || brandModel.primary },
+                  { key: "make", label: hwFields.make.label, value: unit?.make || form.make || unit?.model || "—" },
+                  { key: "imei1", label: "IMEI 1", value: unit?.imei1 || form.imei1 || "—", mono: true },
+                  { key: "imei2", label: "IMEI 2", value: unit?.imei2 || form.imei2 || "—", mono: true },
+                  { key: "serialNumber", label: hwFields.serialNumber.label, value: unit?.serialNumber || form.serialNumber || "—", mono: true },
+                  { key: "deviceType", label: "Device Type", value: unit?.deviceType || form.deviceType || "—", selectOptions: deviceTypes },
+                  { key: "deviceLocation", label: hwFields.deviceLocation.label, value: unit?.deviceLocation || form.deviceLocation || "—" },
+                  { key: "notes", label: "Comment", value: item.notes || form.notes || "—", textarea: true },
                 ]}
               />
             ) : (
@@ -528,13 +608,13 @@ export default function AssetDetailPage() {
                 form={form}
                 setField={setField}
                 rows={[
-                  { key: "name", label: "Asset name", value: item.name },
-                  { key: "brand", label: hwFields.brand?.label || "Brand", value: brandModel.primary },
-                  { key: "make", label: hwFields.make?.label || "Make", value: unit?.make || "—" },
-                  { key: "model", label: hwFields.model?.label || "Model", value: brandModel.secondary || unit?.model || "—" },
-                  { key: "serialNumber", label: hwFields.serialNumber?.label || "Serial", value: unit?.serialNumber || "—", mono: true },
-                  { key: "deviceType", label: "Device Type", value: unit?.deviceType || "—", selectOptions: deviceTypes },
-                  { key: "notes", label: "Remarks", value: item.notes || "—", textarea: true },
+                  { key: "name", label: "Asset name", value: item.name || form.name },
+                  { key: "brand", label: hwFields.brand?.label || "Brand", value: unit?.brand || form.brand || brandModel.primary },
+                  { key: "make", label: hwFields.make?.label || "Make", value: unit?.make || form.make || "—" },
+                  { key: "model", label: hwFields.model?.label || "Model", value: unit?.model || form.model || brandModel.secondary || "—" },
+                  { key: "serialNumber", label: hwFields.serialNumber?.label || "Serial Number", value: unit?.serialNumber || form.serialNumber || "—", mono: true },
+                  { key: "deviceType", label: "Device Type", value: unit?.deviceType || form.deviceType || "—", selectOptions: deviceTypes },
+                  { key: "notes", label: "Remarks", value: item.notes || form.notes || "—", textarea: true },
                 ]}
               />
             )}
@@ -605,11 +685,13 @@ export default function AssetDetailPage() {
                 </div>
               </>
             )}
-            {(stockMode || software) && (
+            {(qtyManaged || software) && (
               <dl className="adp-stats">
                 <div><dt>Total</dt><dd>{item.totalQuantity ?? item.total ?? 0}</dd></div>
-                <div><dt>Available</dt><dd>{item.availableQuantity ?? item.available ?? 0}</dd></div>
+                <div><dt>Available</dt><dd>{qtyManaged ? qtyManagedAvailable(item) : (item.availableQuantity ?? item.available ?? 0)}</dd></div>
                 <div><dt>Assigned</dt><dd>{item.assignedQuantity ?? item.assigned ?? 0}</dd></div>
+                <div><dt>In Repair</dt><dd>{item.repairQuantity ?? 0}</dd></div>
+                <div><dt>Not Working</dt><dd>{item.notWorkingQuantity ?? 0}</dd></div>
               </dl>
             )}
           </aside>
@@ -627,16 +709,21 @@ export default function AssetDetailPage() {
         </div>
       ) : !software ? (
         <footer className="adp-footer">
-          {STATUS_ACTIONS.map((opt) => (
+          {STATUS_ACTIONS.map((opt) => {
+            const noQty = qtyManaged && !unit?.id && qtyManagedAvailable(item) < 1;
+            return (
             <button
               key={opt.key}
               type="button"
               className={`adp-action ${opt.className}`}
+              disabled={noQty}
+              title={noQty ? "No available quantity left for this action." : opt.label}
               onClick={() => handleStatus(opt.key)}
             >
               {opt.label}
             </button>
-          ))}
+            );
+          })}
           <button type="button" className="adp-action adp-action--review" onClick={() => setReviewsOpen(true)}>
             Reviews
           </button>
@@ -654,7 +741,7 @@ function FieldGrid({ editing, form, setField, rows }) {
   return (
     <div className="adp-fields">
       {rows.map((row) => (
-        <label key={row.key} className="adp-field">
+        <div key={row.key} className={`adp-field${row.textarea ? " adp-field--wide" : ""}`}>
           <span>{row.label}{row.required ? <em className="adp-req"> *</em> : null}</span>
           {editing ? (
             row.textarea ? (
@@ -679,7 +766,7 @@ function FieldGrid({ editing, form, setField, rows }) {
           ) : (
             <strong className={row.mono ? "adp-mono" : ""}>{row.value || "—"}</strong>
           )}
-        </label>
+        </div>
       ))}
     </div>
   );

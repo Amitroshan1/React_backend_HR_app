@@ -20,6 +20,7 @@ from ..models.it_models import (
     ITAssetTransition,
     ITAssetUnit,
     ITDeletedAssetLog,
+    ITDeviceType,
     ITInventoryItem,
     ITInventoryQuantityAssignment,
     ITOfficeStockDeployment,
@@ -41,6 +42,7 @@ _OWN_TENANT_COLUMN = (
     ITRemovedAsset,
     ITDeletedAssetLog,
     ITAssetTransition,
+    ITDeviceType,
 )
 _VIA_INVENTORY_ITEM = (
     ITAssetUnit,

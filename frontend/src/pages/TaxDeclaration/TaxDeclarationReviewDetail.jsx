@@ -4,6 +4,7 @@ import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { TaxDeclarationDetailBody } from "./TaxDeclarationDetailBody";
 import {
     authHeaders,
+    jsonAuthHeaders,
     parseApiResponse,
 } from "./taxDeclarationReviewUtils";
 import { notifyError, notifySuccess, notifyWarning } from "../../utils/notify";
@@ -38,24 +39,26 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
 
     const handleReview = async (action) => {
         if (!declId) return;
-        if (["return_employee", "return_accounts", "resubmit_finance"].includes(action) && !reviewComment.trim()) {
+        if (["return_employee", "reject", "return_accounts", "resubmit_finance"].includes(action) && !reviewComment.trim()) {
             notifyWarning("Add a remark before sending this back.");
             return;
         }
         setReviewing(true);
         try {
+            const remark = reviewComment.trim();
             const res = await fetch(`${apiBase}/tax-declarations/${declId}/review`, {
                 method: "POST",
-                headers: authHeaders(),
+                headers: jsonAuthHeaders(),
                 body: JSON.stringify({
                     action,
-                    comment: reviewComment.trim() || undefined,
+                    comment: remark,
+                    rejection_reason: remark,
                 }),
             });
             const { ok, data } = await parseApiResponse(res);
             if (!ok || !data.success) throw new Error(data.message || "Review failed");
             notifySuccess(data.message || `Declaration ${action}d.`);
-            if (["approve", "verify", "return_employee", "return_accounts", "resubmit_finance"].includes(action)) {
+            if (["approve", "verify", "return_employee", "reject", "return_accounts", "resubmit_finance"].includes(action)) {
                 setTimeout(() => onBack?.(), 800);
             } else {
                 await loadDetail();
@@ -69,24 +72,26 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
 
     const handleFinalProofReview = async (action) => {
         if (!declId) return;
-        if (["return_employee", "return_accounts", "resubmit_finance"].includes(action) && !reviewComment.trim()) {
+        if (["return_employee", "reject", "return_accounts", "resubmit_finance"].includes(action) && !reviewComment.trim()) {
             notifyWarning("Add a remark before sending this back.");
             return;
         }
         setReviewing(true);
         try {
+            const remark = reviewComment.trim();
             const res = await fetch(`${apiBase}/tax-declarations/${declId}/final-proof-review`, {
                 method: "POST",
-                headers: authHeaders(),
+                headers: jsonAuthHeaders(),
                 body: JSON.stringify({
                     action,
-                    comment: reviewComment.trim() || undefined,
+                    comment: remark || undefined,
+                    rejection_reason: remark || undefined,
                 }),
             });
             const { ok, data } = await parseApiResponse(res);
             if (!ok || !data.success) throw new Error(data.message || "Final proof review failed");
             notifySuccess(data.message || `Final proof ${action}d.`);
-            if (["approve", "verify", "return_employee", "return_accounts", "resubmit_finance"].includes(action)) {
+            if (["approve", "verify", "return_employee", "reject", "return_accounts", "resubmit_finance"].includes(action)) {
                 setTimeout(() => onBack?.(), 800);
             } else {
                 await loadDetail();
@@ -108,7 +113,7 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
         try {
             const res = await fetch(`${apiBase}/tax-declarations/${declId}/amend`, {
                 method: "POST",
-                headers: authHeaders(),
+                headers: jsonAuthHeaders(),
                 body: JSON.stringify({ comment: reviewComment.trim() }),
             });
             const { ok, data } = await parseApiResponse(res);
@@ -134,9 +139,10 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
         caps.can_resubmit_final_proof ||
         caps.can_approve_final_proof ||
         caps.can_return_final_accounts;
+    const fps = (decl?.final_proof_status || "").toLowerCase();
     const canAmendUnlock =
         decl?.status === "approved" &&
-        !["submitted", "verified", "returned"].includes((decl?.final_proof_status || "").toLowerCase());
+        ["", "draft", "rejected", "approved"].includes(fps);
     const amendPolicy = detail?.amendment_policy;
     const amendRemaining = amendPolicy?.remaining;
     const amendLimitReached =
@@ -246,9 +252,9 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
                     </button>
                 ) : null}
                 {caps.can_return_final_employee ? (
-                    <button type="button" className="tax-decl-btn tax-decl-btn--secondary" disabled={reviewing} onClick={() => handleFinalProofReview("return_employee")}>
+                    <button type="button" className="tax-decl-btn tax-decl-btn--secondary" disabled={reviewing} onClick={() => handleFinalProofReview("reject")}>
                         <X size={16} aria-hidden />
-                        Return proof to employee
+                        Reject
                     </button>
                 ) : null}
                 {caps.can_approve_final_proof ? (

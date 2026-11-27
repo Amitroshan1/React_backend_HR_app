@@ -42,7 +42,8 @@ import {
 import { getApiErrorMessage } from "../../utils/apiError";
 import { useUser } from "../../components/layout/UserContext";
 import { ProfileStatusPanel } from "../../components/dashboard/ProfileStatusPanel";
-import { getAccessToken } from "../../utils/authSession";
+import { getAccessToken, hasSignedInHint } from "../../utils/authSession";
+import { formatLeaveDays, isLikelyNetworkError, NO_INTERNET_MESSAGE, parseLeaveDays } from "../../utils/networkStatus";
 const formatDate = (value) => formatDateDDMMYYYY(value, "N/A");
 
 const NEWS_FEED_VISIBLE_DAYS = 6;
@@ -195,14 +196,21 @@ const formatWorkingHours = (val) => {
 };
 const calculateExperience = (doj) => {
   if (!doj) return "N/A";
-  const today = new Date();
-  const joinDate = new Date(doj);
+  const raw = String(doj).trim();
+  const isoDay = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const joinDate = isoDay
+    ? new Date(Number(isoDay[1]), Number(isoDay[2]) - 1, Number(isoDay[3]))
+    : new Date(doj);
   if (isNaN(joinDate.getTime())) return "N/A";
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const joinStart = new Date(joinDate.getFullYear(), joinDate.getMonth(), joinDate.getDate());
+  if (joinStart > todayStart) return "Not yet joined";
   let totalMonths =
-    (today.getFullYear() - joinDate.getFullYear()) * 12 +
-    (today.getMonth() - joinDate.getMonth());
-  if (today.getDate() < joinDate.getDate()) totalMonths--;
-  if (totalMonths < 0) return "Less than a year";
+    (todayStart.getFullYear() - joinStart.getFullYear()) * 12 +
+    (todayStart.getMonth() - joinStart.getMonth());
+  if (todayStart.getDate() < joinStart.getDate()) totalMonths--;
+  if (totalMonths < 0) return "Not yet joined";
   const years = Math.floor(totalMonths / 12);
   const months = totalMonths % 12;
   const parts = [];
@@ -494,7 +502,7 @@ export const Dashboard = () => {
         user: {},
         employee: {},
         punch: {},
-        leave_balance: { pl: 'N/A', cl: 'N/A' },
+        leave_balance: {},
         managers: {},
         last_leave: null,
         last_payslip: null,
@@ -521,6 +529,7 @@ export const Dashboard = () => {
     });
     const punchTimingRef = useRef({});
     const [newsFeed, setNewsFeed] = useState([]);
+    const [newsFeedError, setNewsFeedError] = useState("");
     const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
     const [noticeInfo, setNoticeInfo] = useState(null);
     const [revokingNotice, setRevokingNotice] = useState(false);
@@ -557,11 +566,12 @@ export const Dashboard = () => {
     };
     const fetchDashboardData = async (showAlert = false) => {
         const token = getAccessToken();
-        if (!token) return;
+        if (!token && !hasSignedInHint()) return;
         try {
             const response = await fetch(`${API_BASE_URL}/employee/homepage`, {
                 method: 'GET',
-                headers: { 'Authorization': `Bearer ${token}` }
+                credentials: 'include',
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
             if (!response.ok) {
                 if (response.status === 401) {
@@ -584,8 +594,12 @@ export const Dashboard = () => {
                         sessions: Array.isArray(punch.sessions) ? punch.sessions : [],
                         session_attendance_date: punch.session_attendance_date || null,
                     },
-                    leave_balance: result.leave_balance || { pl: 'N/A', cl: 'N/A' },
-                    managers: result.managers || {},
+                    leave_balance: result.leave_balance || {},
+                    managers: {
+                        l1: result.managers?.l1 || null,
+                        l2: result.managers?.l2 || null,
+                        l3: result.managers?.l3 || null,
+                    },
                     last_leave: result.last_leave || null,
                     last_payslip: result.last_payslip || null,
                     probation: result.probation || null,
@@ -601,7 +615,11 @@ export const Dashboard = () => {
             }
         } catch (err) {
             console.error("Fetch error:", err);
-            if (showAlert) alert(err.message);
+            if (isLikelyNetworkError(err) && showAlert) {
+                alert(NO_INTERNET_MESSAGE);
+            } else if (showAlert) {
+                alert(err.message);
+            }
         } finally {
             setLoading(false);
         }
@@ -776,9 +794,11 @@ export const Dashboard = () => {
             const data = await res.json();
             if (data.success && Array.isArray(data.news_feed)) {
                 setNewsFeed(data.news_feed.filter(isNewsFeedPostVisible));
+                setNewsFeedError("");
             }
-        } catch {
+        } catch (err) {
             setNewsFeed([]);
+            setNewsFeedError(isLikelyNetworkError(err) ? NO_INTERNET_MESSAGE : "");
         }
     };
     useRefreshOnNavigate(() => {
@@ -1039,6 +1059,16 @@ export const Dashboard = () => {
 
         const checkLocation = (highAccuracy = false, opts = {}) => {
             const force = !!opts.force;
+            if (typeof navigator !== "undefined" && navigator.onLine === false) {
+                locationCheckInFlight = false;
+                setLocation((prev) => ({
+                    ...prev,
+                    error: NO_INTERNET_MESSAGE,
+                    isAvailable: false,
+                    isAcquiring: false,
+                }));
+                return;
+            }
             if (!alive || !navigator.geolocation) {
                 if (!navigator.geolocation) {
                     setLocation((prev) => ({
@@ -1104,7 +1134,17 @@ export const Dashboard = () => {
         const onOnline = () => {
             if (document.visibilityState === "visible") checkLocation(true, { force: true });
         };
+        const onOffline = () => {
+            locationCheckInFlight = false;
+            setLocation((prev) => ({
+                ...prev,
+                error: NO_INTERNET_MESSAGE,
+                isAvailable: false,
+                isAcquiring: false,
+            }));
+        };
         window.addEventListener("online", onOnline);
+        window.addEventListener("offline", onOffline);
 
         let permissionStatus = null;
         const onPermissionChange = () => {
@@ -1142,6 +1182,7 @@ export const Dashboard = () => {
             if (pollTimer) clearTimeout(pollTimer);
             document.removeEventListener("visibilitychange", onVisibility);
             window.removeEventListener("online", onOnline);
+            window.removeEventListener("offline", onOffline);
             if (permissionStatus) {
                 if (typeof permissionStatus.removeEventListener === "function") {
                     permissionStatus.removeEventListener("change", onPermissionChange);
@@ -1770,20 +1811,20 @@ export const Dashboard = () => {
     const dojFormatted = useMemo(() => formatDate(dynamicData.user.doj), [dynamicData.user.doj]);
     const experience = useMemo(() => calculateExperience(dynamicData.user.doj), [dynamicData.user.doj]);
     const totalLeave = useMemo(() => {
-        const pl = Number(dynamicData.leave_balance.pl);
-        const cl = Number(dynamicData.leave_balance.cl);
-        return (isNaN(pl) || isNaN(cl)) ? 'N/A' : (pl + cl);
+        const pl = parseLeaveDays(dynamicData.leave_balance?.pl);
+        const cl = parseLeaveDays(dynamicData.leave_balance?.cl);
+        return (pl == null || cl == null) ? "—" : (pl + cl);
     }, [dynamicData.leave_balance]);
     const leaveBreakdown = useMemo(() => {
         const lb = dynamicData.leave_balance || {};
-        const remainingPl = Number(lb.pl ?? 0);
-        const remainingCl = Number(lb.cl ?? 0);
-        const remainingComp = Number(lb.comp ?? 0);
-        const totalPl = Number(lb.total_pl ?? 0);
-        const totalCl = Number(lb.total_cl ?? 0);
-        const usedPl = Number(lb.used_pl ?? 0);
-        const usedCl = Number(lb.used_cl ?? 0);
-        const usedComp = Number(lb.used_comp ?? 0);
+        const remainingPl = parseLeaveDays(lb.pl);
+        const remainingCl = parseLeaveDays(lb.cl);
+        const remainingComp = parseLeaveDays(lb.comp);
+        const totalPl = parseLeaveDays(lb.total_pl);
+        const totalCl = parseLeaveDays(lb.total_cl);
+        const usedPl = parseLeaveDays(lb.used_pl);
+        const usedCl = parseLeaveDays(lb.used_cl);
+        const usedComp = parseLeaveDays(lb.used_comp);
         const compSubtext = remainingComp > 0
             ? `Available now · each valid 30 days`
             : usedComp > 0
@@ -1794,7 +1835,7 @@ export const Dashboard = () => {
                 key: 'pl',
                 label: 'Privilege Leave (PL)',
                 remaining: remainingPl,
-                subtext: `Total ${totalPl}, Used ${usedPl}`,
+                subtext: `Total ${formatLeaveDays(totalPl)}, Used ${formatLeaveDays(usedPl)}`,
                 icon: <FiStar size={22} />,
                 colorClass: 'blue',
             },
@@ -1802,7 +1843,7 @@ export const Dashboard = () => {
                 key: 'cl',
                 label: 'Casual Leave (CL)',
                 remaining: remainingCl,
-                subtext: `Total ${totalCl}, Used ${usedCl}`,
+                subtext: `Total ${formatLeaveDays(totalCl)}, Used ${formatLeaveDays(usedCl)}`,
                 icon: <FiSun size={22} />,
                 colorClass: 'green',
             },
@@ -1831,6 +1872,10 @@ export const Dashboard = () => {
     const isCheckedOut = !punchHasOpenSession() && !!(dynamicData.punch.punch_in || dynamicData.punch.punch_out);
     const isActive = isCheckedIn;
     const locationPill = useMemo(() => {
+        const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+        if (offline || location.error === NO_INTERNET_MESSAGE) {
+            return { text: "Offline", tone: "off" };
+        }
         if (location.isAcquiring && !location.isAvailable) {
             return { text: "Finding…", tone: "approx" };
         }
@@ -1838,7 +1883,7 @@ export const Dashboard = () => {
             return { text: "Off", tone: "off" };
         }
         return zoneToLocationLabel(geo.zone, location.isInRange);
-    }, [geo.zone, location.isInRange, location.isAvailable, location.isAcquiring]);
+    }, [geo.zone, location.isInRange, location.isAvailable, location.isAcquiring, location.error]);
     const punchBusy = isPunching || punchGps.isBusy;
     const punchStatusLine =
         punchGps.statusMessage ||
@@ -1876,9 +1921,11 @@ export const Dashboard = () => {
             : instantPunchAgeSec <= 1
               ? "Ready for instant punch"
               : `Verified ${instantPunchAgeSec} seconds ago`;
-    const managerName = [dynamicData.managers?.l2?.name, dynamicData.managers?.l1?.name, dynamicData.managers?.l3?.name]
-        .map((n) => (typeof n === "string" ? n.trim() : n))
-        .find((n) => n) || "N/A";
+    const managerName = (() => {
+        const raw = String(dynamicData.managers?.l1?.name || "").trim();
+        if (!raw || /^(n\/a|na|unassigned|none|-)$/i.test(raw)) return "N/A";
+        return raw;
+    })();
     const managerDept = dynamicData.user?.circle || "N/A"; 
     const userCircle = (dynamicData.user?.circle || '').trim().toUpperCase();
     const showWfhQuickAction = userCircle === "NHQ";
@@ -1962,7 +2009,7 @@ export const Dashboard = () => {
                                 <h4 className="card-label">Leave Balance</h4>
                                 <h3 className="card-value">{totalLeave} Days</h3> 
                                 <p className="card-subtext">
-                                    {dynamicData.leave_balance.pl} PL + {dynamicData.leave_balance.cl} CL
+                                    {formatLeaveDays(dynamicData.leave_balance.pl)} PL + {formatLeaveDays(dynamicData.leave_balance.cl)} CL
                                 </p>
                             </div>
                             <div className="card-icon-round sky-bg">
@@ -1973,8 +2020,8 @@ export const Dashboard = () => {
                             <div className="manager-content-left">
                                 <div className="card-label">Reporting Manager</div>
                                 <div className="manager-profile-box">
-                                    <h3 className="manager-name-text">{managerName}</h3> 
-                                    <p className="manager-dept-text">{managerDept}</p> 
+                                    <h3 className="manager-name-text" title={managerName}>{managerName}</h3> 
+                                    <p className="manager-dept-text" title={managerDept}>{managerDept}</p> 
                                 </div>
                             </div>
                             <button className="profile-action-btn orange-bg">
@@ -2190,7 +2237,7 @@ export const Dashboard = () => {
                             </h2>
                             <p className="subtext">Announcements, birthdays & work anniversaries for your circle</p>
                             {newsFeed.length === 0 ? (
-                                <p className="news-feed-empty">No announcements yet.</p>
+                                <p className="news-feed-empty">{newsFeedError || "No announcements yet."}</p>
                             ) : (
                                 <div className="news-feed-scroll-viewport">
                                 <ul className="news-feed-list" ref={newsFeedListRef}>
@@ -2449,7 +2496,7 @@ export const Dashboard = () => {
                             >
                                 <div className="dashboard-leave-balance-item__content">
                                     <span className="dashboard-leave-balance-item__value">
-                                        {Number.isFinite(item.remaining) ? item.remaining : 'N/A'}
+                                        {formatLeaveDays(item.remaining)}
                                     </span>
                                     <span className="dashboard-leave-balance-item__label">{item.label}</span>
                                     <span className="dashboard-leave-balance-item__subtext">{item.subtext}</span>

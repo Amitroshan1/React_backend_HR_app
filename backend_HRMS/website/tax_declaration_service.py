@@ -538,6 +538,46 @@ def _emp_norm(admin) -> str:
     return " ".join(emp.split())
 
 
+_REVIEW_ACTION_ALIASES = {
+    "return": "return_employee",
+    "return_to_employee": "return_employee",
+    "returned_to_employee": "return_employee",
+    "return_proof": "return_employee",
+    "return_proof_to_employee": "return_employee",
+    "reject": "return_employee",
+    "rejected": "return_employee",
+    "reject_proof": "return_employee",
+    "reject_final": "return_employee",
+    "reject_final_proof": "return_employee",
+    "verify_and_send": "verify",
+    "send_to_finance": "verify",
+    "send_finance": "verify",
+}
+
+
+def _review_request_payload() -> dict:
+    data = request.get_json(silent=True, force=True)
+    if not isinstance(data, dict):
+        data = {}
+    if not data.get("action") and request.form:
+        data = {**data, **{key: request.form.get(key) for key in request.form}}
+    if not data.get("action"):
+        raw = (request.get_data(cache=True, as_text=True) or "").strip()
+        if raw:
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                data = {**data, **parsed}
+    return data
+
+
+def _normalize_review_action(raw) -> str:
+    action = "_".join(str(raw or "").strip().lower().replace("-", "_").split())
+    return _REVIEW_ACTION_ALIASES.get(action, action)
+
+
 def _is_org_admin_viewer(admin) -> bool:
     from .plan_features import is_org_admin
 
@@ -577,7 +617,7 @@ def _tax_capabilities(admin, row=None) -> dict:
         "can_approve": finance and status == "verified",
         "can_return_accounts": finance and status == "verified",
         "can_verify_final_proof": accounts and status == "approved" and fps == "submitted",
-        "can_return_final_employee": accounts and status == "approved" and fps in ("submitted", "returned"),
+        "can_return_final_employee": accounts and status == "approved" and fps in ("submitted", "returned", "verified"),
         "can_resubmit_final_proof": accounts and status == "approved" and fps == "returned",
         "can_approve_final_proof": finance and status == "approved" and fps == "verified",
         "can_return_final_accounts": finance and status == "approved" and fps == "verified",
@@ -614,18 +654,37 @@ def _employee_info(admin: Admin) -> dict:
     }
 
 
+def _ctc_money(value) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _ctc_hints(admin_id: int) -> dict:
-    ctc = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+    ctc = (
+        CTCBreakup.query.filter_by(admin_id=admin_id)
+        .order_by(CTCBreakup.id.desc())
+        .first()
+    )
     if not ctc:
         return {"has_ctc": False}
-    monthly_epf = float(ctc.epf or 0)
+    monthly_epf = _ctc_money(ctc.epf)
+    monthly_gross = _ctc_money(ctc.gross_salary)
+    monthly_basic = _ctc_money(ctc.basic_salary)
+    annual = _ctc_money(ctc.annual_ctc) or _ctc_money(ctc.annual_ctc_computed)
+    try:
+        total_annual = float(ctc.total_ctc_annual() or 0)
+    except (TypeError, ValueError):
+        total_annual = 0.0
+    has_ctc = any(v > 0 for v in (monthly_gross, monthly_basic, annual, total_annual, monthly_epf))
     return {
         "epf_annual": monthly_epf * 12,
         "monthly_epf": monthly_epf,
-        "monthly_hra": float(ctc.hra or 0),
-        "monthly_basic": float(ctc.basic_salary or 0),
-        "monthly_gross": float(ctc.gross_salary or 0),
-        "has_ctc": bool(float(ctc.gross_salary or 0) > 0),
+        "monthly_hra": _ctc_money(ctc.hra),
+        "monthly_basic": monthly_basic,
+        "monthly_gross": monthly_gross,
+        "has_ctc": has_ctc,
     }
 
 
@@ -1064,6 +1123,8 @@ def save_tax_declaration_self():
             return jsonify({"success": False, "message": "Please acknowledge the New Tax Regime terms."}), 400
         if not data.get("final_declaration_accepted"):
             return jsonify({"success": False, "message": "Please accept the final employee declaration."}), 400
+        if not (data.get("declaration_place") or "").strip():
+            return jsonify({"success": False, "message": "Please enter Place in the employee declaration."}), 400
 
     ctc = _ctc_hints(viewer.id)
     if submit and not ctc.get("has_ctc"):
@@ -1320,13 +1381,17 @@ def review_tax_declaration(decl_id: int):
     if not viewer or not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
-    data = request.get_json(silent=True) or {}
-    action = (data.get("action") or "").strip().lower()
+    data = _review_request_payload()
+    action = _normalize_review_action(
+        data.get("action") or data.get("review_action") or data.get("decision")
+    )
+    comment = (data.get("comment") or data.get("rejection_reason") or "").strip() or None
+    if not action and comment:
+        action = "return_employee"
     if action == "approve" and _is_accounts_actor(viewer) and not _is_finance_actor(viewer):
         action = "verify"
     if action == "reject" and _is_accounts_actor(viewer) and not _is_finance_actor(viewer):
         action = "return_employee"
-    comment = (data.get("comment") or data.get("rejection_reason") or "").strip() or None
 
     allowed = {
         "verify",
@@ -1334,11 +1399,15 @@ def review_tax_declaration(decl_id: int):
         "resubmit_finance",
         "approve",
         "return_accounts",
+        "reject",
     }
     if action not in allowed:
         return jsonify({"success": False, "message": "This review action is not allowed."}), 400
 
     row = _declaration_in_tenant_or_404(decl_id)
+    fps = (getattr(row, "final_proof_status", None) or "").lower()
+    if (row.status or "").lower() == "approved" and fps in ("submitted", "returned", "verified"):
+        return review_final_proof(decl_id)
     caps = _tax_capabilities(viewer, row)
     if viewer.id == row.admin_id:
         return jsonify({"success": False, "message": "You cannot review your own tax declaration."}), 403
@@ -1349,7 +1418,7 @@ def review_tax_declaration(decl_id: int):
             return jsonify({"success": False, "message": "Accounts can verify only after the employee submits."}), 400
         row.status = "verified"
         row.rejection_reason = None
-    elif action == "return_employee":
+    elif action in ("return_employee", "reject"):
         if not caps["can_return_employee"]:
             return jsonify({"success": False, "message": "Accounts can return this only while it is in their queue."}), 400
         if not comment:
@@ -1392,9 +1461,20 @@ def review_tax_declaration(decl_id: int):
         if emp:
             _notify_declaration_tds_impact(emp, row.financial_year, "approved")
 
+    if action in ("verify", "resubmit_finance"):
+        success_msg = "Declaration verified and sent to Finance."
+    elif action == "approve":
+        success_msg = "Declaration approved."
+    elif action == "return_employee":
+        success_msg = "Declaration returned to the employee."
+    elif action == "return_accounts":
+        success_msg = "Declaration returned to Accounts."
+    else:
+        success_msg = f"Declaration {row.status}."
+
     return jsonify({
         "success": True,
-        "message": f"Declaration {row.status}.",
+        "message": success_msg,
         "declaration": row.to_dict(include_items=True, include_documents=True),
     }), 200
 
@@ -1539,16 +1619,22 @@ def get_tax_declaration_detail(decl_id: int):
             return blocked
 
     admin = Admin.query.get(row.admin_id)
-    rules_old = load_tax_rules(row.financial_year, "old")
     from . import tds_settings as tds_cfg
     amend_limit = tds_cfg.max_declaration_amendments_per_fy()
     amend_used = _count_amend_unlocks(row)
+    try:
+        rules_old = load_tax_rules(row.financial_year, "old")
+        rules_new = load_tax_rules(row.financial_year, "new")
+        schema = enrich_schema_with_caps(load_form_schema(row.financial_year), rules_old)
+    except Exception:
+        current_app.logger.exception("tax declaration detail schema load failed")
+        rules_old, rules_new, schema = {}, {}, {"sections": []}
     return jsonify({
         "success": True,
         "declaration": row.to_dict(include_items=True, include_documents=True),
         "employee": _employee_info(admin) if admin else {},
-        "schema": enrich_schema_with_caps(load_form_schema(row.financial_year), rules_old),
-        "rules": {"old": rules_old, "new": load_tax_rules(row.financial_year, "new")},
+        "schema": schema,
+        "rules": {"old": rules_old, "new": rules_new},
         "history": [h.to_dict() for h in row.approval_history],
         "latest_finance_remark": _latest_history_comment(row, ("return_accounts", "return_final_accounts")),
         "capabilities": _tax_capabilities(viewer, row),
@@ -1809,13 +1895,17 @@ def review_final_proof(decl_id: int):
     if not viewer or not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
-    data = request.get_json(silent=True) or {}
-    action = (data.get("action") or "").strip().lower()
+    data = _review_request_payload()
+    action = _normalize_review_action(
+        data.get("action") or data.get("review_action") or data.get("decision")
+    )
+    comment = (data.get("comment") or data.get("rejection_reason") or "").strip() or None
+    if not action and comment:
+        action = "return_employee"
     if action == "approve" and _is_accounts_actor(viewer) and not _is_finance_actor(viewer):
         action = "verify"
     if action == "reject" and _is_accounts_actor(viewer) and not _is_finance_actor(viewer):
         action = "return_employee"
-    comment = (data.get("comment") or data.get("rejection_reason") or "").strip() or None
 
     row = _declaration_in_tenant_or_404(decl_id)
     if viewer.id == row.admin_id:
@@ -1832,7 +1922,7 @@ def review_final_proof(decl_id: int):
         row.final_proof_status = "verified"
         row.final_proof_rejection_reason = None
         history_action = "verify_final_proof"
-    elif action == "return_employee":
+    elif action in ("return_employee", "reject"):
         if not caps["can_return_final_employee"]:
             return jsonify({"success": False, "message": "Accounts can return this final proof only from their queue."}), 400
         if not comment:
@@ -1883,7 +1973,11 @@ def review_final_proof(decl_id: int):
 
     return jsonify({
         "success": True,
-        "message": f"Final proof {row.final_proof_status}.",
+        "message": (
+            "Final proof rejected. The employee can amend and resubmit."
+            if (row.final_proof_status or "").lower() == "rejected"
+            else f"Final proof {row.final_proof_status}."
+        ),
         "declaration": row.to_dict(include_items=True, include_documents=True),
     }), 200
 

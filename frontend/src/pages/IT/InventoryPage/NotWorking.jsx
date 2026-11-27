@@ -273,7 +273,10 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
     () =>
       inventoryRows
         .filter((i) =>
-          ["accessories", "consumables", "stock"].includes(String(i.category || "").toLowerCase()),
+          ["accessories", "consumables", "accessory", "consumable", "stock"].includes(
+            String(i.category || "").toLowerCase(),
+          ) || String(i.category || "").toLowerCase().startsWith("consumable")
+            || String(i.category || "").toLowerCase().startsWith("accessor"),
         )
         .filter((i) => resolveInventoryCategory(i) === inventoryCategory)
         .filter((i) => Number(i.notWorkingQuantity || 0) > 0)

@@ -341,6 +341,57 @@ def test_it_codes_are_numbered_inside_each_company(app):
         "/api/it/units/bulk", json={"inventory_item_id": 20, **serial}, headers=_it(app, 1)
     )
     assert clash.status_code == 409
+    clash_msg = (clash.get_json() or {}).get("message") or ""
+    assert "already exist" in clash_msg.lower() or "unique" in clash_msg.lower()
+
+
+def test_add_hardware_unit_with_device_type_photo_and_remark(app, tmp_path):
+    """Mirrors Add New Assets: catalog row then unit with DV + photo + remark."""
+    app.static_folder = str(tmp_path / "static")
+    (tmp_path / "static").mkdir()
+    client = app.test_client()
+    headers = _it(app, 1)
+    created = client.post(
+        "/api/it/inventory/items",
+        json={"name": "hp", "category": "Hardware", "hw_type": "Laptop", "notes": "wefweqfwe fwqefwq"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.get_json()
+    item_id = created.get_json()["item"]["id"]
+    bulk = client.post(
+        "/api/it/units/bulk",
+        json={
+            "inventory_item_id": item_id,
+            "notes": "wefweqfwe fwqefwq",
+            "units": [{
+                "unit_code": "w2323",
+                "asset_name": "hp",
+                "category": "Hardware",
+                "hw_type": "Laptop",
+                "brand": "hp",
+                "make": "werwe",
+                "model": "w2323",
+                "serial_number": "we23r2",
+                "device_type": "DV",
+                "photos": [PNG],
+                "notes": "wefweqfwe fwqefwq",
+                "remark": "wefweqfwe fwqefwq",
+            }],
+        },
+        headers=headers,
+    )
+    assert bulk.status_code == 201, bulk.get_json()
+    unit = bulk.get_json()["units"][0]
+    assert unit["unitCode"] == "w2323"
+    assert unit.get("deviceType") == "DV"
+    assert unit.get("serialNumber") == "we23r2"
+    with app.app_context():
+        row = ITAssetUnit.query.filter_by(unit_code="w2323").one()
+        assert row.device_type == "DV"
+        assert row.tenant_id == 1
+        assert row.photos_json and row.photos_json[0].startswith("tenants/1/itam/units/")
+        log = ITAssetTransition.query.filter_by(asset_unit_id=row.id, action_code="RECEIVE").one()
+        assert "wefweqfwe" in (log.remark or "")
 
 
 def test_existing_itam_image_data_can_be_written_to_the_company_folder(app, tmp_path):

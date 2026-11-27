@@ -16,6 +16,11 @@ function isGenericPhrase(msg) {
   return GENERIC_PHRASES.some((re) => re.test(s));
 }
 
+function looksLikeJsonParseError(msg) {
+  const s = String(msg || "");
+  return /unexpected token/i.test(s) || /is not valid json/i.test(s);
+}
+
 function statusFallback(status) {
   if (status === 400) return "Invalid request. Please check your input and try again.";
   if (status === 401) return "Your session expired. Please sign in again.";
@@ -30,6 +35,26 @@ function statusFallback(status) {
   }
   if (status) return `Request failed (${status}). Please try again.`;
   return "Something went wrong. Please try again.";
+}
+
+/**
+ * Parse a fetch Response as JSON without throwing SyntaxError on HTML 502/SPA pages.
+ */
+export async function readJsonResponse(res) {
+  const text = await res.text();
+  const trimmed = (text || "").trim();
+  if (!trimmed) {
+    if (!res.ok) throw errorFromApiResponse(res, {});
+    return {};
+  }
+  if (trimmed.startsWith("<")) {
+    throw errorFromApiResponse(res, {});
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    throw errorFromApiResponse(res, {});
+  }
 }
 
 /**
@@ -66,7 +91,7 @@ export function getApiErrorMessage(
 
   if (typeof err === "string") {
     const s = err.trim();
-    if (!s || isGenericPhrase(s) || /^server error \(\d+\)/i.test(s)) {
+    if (!s || isGenericPhrase(s) || /^server error \(\d+\)/i.test(s) || looksLikeJsonParseError(s)) {
       return fallback;
     }
     return s;
@@ -77,6 +102,11 @@ export function getApiErrorMessage(
     (typeof err.message === "string" && err.message.trim()) ||
     (typeof err.data?.message === "string" && err.data.message.trim()) ||
     "";
+
+  if (looksLikeJsonParseError(raw)) {
+    if (status) return statusFallback(status);
+    return fallback;
+  }
 
   if (raw && !isGenericPhrase(raw) && !/^server error \(\d+\)/i.test(raw)) {
     // Prefer specific backend text unless it's the generic 5xx copy we generate ourselves.

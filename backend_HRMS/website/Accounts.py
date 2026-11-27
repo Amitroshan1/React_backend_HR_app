@@ -3591,18 +3591,25 @@ def employee_type_circle_summary():
             "message": "Unauthorized user"
         }), 401
 
-    results = db.session.query(
-        Admin.emp_type,
-        Admin.circle,
-        func.count(Admin.id)
-    ).filter(
-        admin_tenant_clause(),
-        Admin.is_active == True,
-        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
-    ).group_by(
-        Admin.emp_type,
-        Admin.circle
-    ).all()
+    try:
+        results = db.session.query(
+            Admin.emp_type,
+            Admin.circle,
+            func.count(Admin.id)
+        ).filter(
+            admin_tenant_clause(),
+            Admin.is_active == True,
+            or_(Admin.is_exited == False, Admin.is_exited.is_(None))
+        ).group_by(
+            Admin.emp_type,
+            Admin.circle
+        ).all()
+    except Exception:
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "message": "Unable to load payroll by department. Please try again."
+        }), 500
 
     summary_map = {}
     for emp_type, circle, count in results:
@@ -3747,33 +3754,44 @@ def payroll_summary():
     current_month = now.strftime("%B")
     current_year = str(now.year)
 
-    total_employees = tenant_admin_query().filter(
-        db.func.coalesce(Admin.is_exited, False) == False,
-        db.func.coalesce(Admin.is_active, True) == True,
-    ).count()
+    total_employees = 0
+    payslips_generated = 0
+    ytd_expenses = 0
+    try:
+        total_employees = tenant_admin_query().filter(
+            db.func.coalesce(Admin.is_exited, False) == False,
+            db.func.coalesce(Admin.is_active, True) == True,
+        ).count()
+    except Exception:
+        db.session.rollback()
 
-    payslips_generated = PaySlip.query.filter(
-        PaySlip.month == current_month,
-        PaySlip.year == current_year,
-        PaySlip.admin_id.in_(tenant_admin_ids()),
-    ).count()
+    try:
+        payslips_generated = PaySlip.query.filter(
+            PaySlip.month == current_month,
+            PaySlip.year == current_year,
+            PaySlip.admin_id.in_(tenant_admin_ids()),
+        ).count()
+    except Exception:
+        db.session.rollback()
 
-    employees_paid = payslips_generated
-
-    ytd_expenses = db.session.query(
-        func.coalesce(func.sum(ExpenseLineItem.amount), 0)
-    ).join(
-        ExpenseClaimHeader, ExpenseLineItem.claim_id == ExpenseClaimHeader.id
-    ).filter(
-        func.extract('year', ExpenseLineItem.date) == now.year,
-        ExpenseClaimHeader.admin_id.in_(tenant_admin_ids()),
-    ).scalar()
+    try:
+        ytd_expenses = db.session.query(
+            func.coalesce(func.sum(ExpenseLineItem.amount), 0)
+        ).join(
+            ExpenseClaimHeader, ExpenseLineItem.claim_id == ExpenseClaimHeader.id
+        ).filter(
+            func.extract('year', ExpenseLineItem.date) == now.year,
+            ExpenseClaimHeader.admin_id.in_(tenant_admin_ids()),
+        ).scalar()
+    except Exception:
+        db.session.rollback()
+        ytd_expenses = 0
 
     return jsonify({
         "success": True,
         "data": {
             "total_employees": total_employees,
-            "employees_paid": employees_paid,
+            "employees_paid": payslips_generated,
             "payslips_generated": payslips_generated,
             "ytd_expenses": float(ytd_expenses or 0)
         }

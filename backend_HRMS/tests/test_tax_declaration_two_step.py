@@ -88,6 +88,26 @@ def _review(client, app, decl_id, headers, action, comment=""):
         )
 
 
+def test_accounts_return_to_employee(app):
+    client = app.test_client()
+    decl_id = _seed(app)
+    acc = _headers(app, 21, "acc@one.com", "Accounts")
+    acc.pop("Content-Type", None)
+
+    with patch("website.plan_features.can_access_accounts_panel", return_value=True), \
+         patch("website.payroll_tds_service.recalculate_payroll_tds_for_financial_year"):
+        res = client.post(
+            f"/api/accounts/tax-declarations/{decl_id}/review",
+            data='{"action":"return_employee","comment":"Need PAN copy"}',
+            headers=acc,
+        )
+    assert res.status_code == 200, res.get_json()
+    body = res.get_json()
+    assert body["success"] is True
+    assert "returned" in (body.get("message") or "").lower()
+    assert body["declaration"]["status"] == "returned_to_employee"
+
+
 def test_finance_cannot_skip_accounts(app):
     client = app.test_client()
     decl_id = _seed(app)
@@ -143,3 +163,45 @@ def test_accounts_cannot_final_approve_and_cannot_self_review(app):
 
     self_review = _review(client, app, own_id, acc, "verify")
     assert self_review.status_code == 403
+
+
+def test_accounts_reject_final_proof_sets_rejected(app):
+    client = app.test_client()
+    with app.app_context():
+        row = EmployeeTaxDeclaration(
+            admin_id=20,
+            financial_year="2025-26",
+            status="approved",
+            tax_regime="new",
+            final_proof_status="submitted",
+        )
+        db.session.add(row)
+        db.session.commit()
+        decl_id = row.id
+
+    acc = _headers(app, 21, "acc@one.com", "Accounts")
+    with patch("website.plan_features.can_access_accounts_panel", return_value=True), \
+         patch("website.payroll_tds_service.recalculate_payroll_tds_for_financial_year"):
+        via_review = client.post(
+            f"/api/accounts/tax-declarations/{decl_id}/review",
+            json={"action": "reject", "comment": "Proof does not match declared 80C."},
+            headers=acc,
+        )
+        assert via_review.status_code == 200, via_review.get_json()
+        assert via_review.get_json()["declaration"]["final_proof_status"] == "rejected"
+
+        row = EmployeeTaxDeclaration.query.get(decl_id)
+        row.final_proof_status = "submitted"
+        db.session.commit()
+
+        direct = client.post(
+            f"/api/accounts/tax-declarations/{decl_id}/final-proof-review",
+            json={"action": "reject", "comment": "Receipts are incomplete."},
+            headers=acc,
+        )
+    assert direct.status_code == 200, direct.get_json()
+    body = direct.get_json()
+    assert body["success"] is True
+    assert "rejected" in (body.get("message") or "").lower()
+    assert body["declaration"]["final_proof_status"] == "rejected"
+    assert "incomplete" in (body["declaration"].get("final_proof_rejection_reason") or "").lower()

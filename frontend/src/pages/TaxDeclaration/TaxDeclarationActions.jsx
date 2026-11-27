@@ -6,6 +6,7 @@ export function TaxDeclarationActions({
     declarationApproved = false,
     finalProofEditable = false,
     finalProofNeedsAction = false,
+    finalProofStatus = "",
 }) {
     const navigate = useNavigate();
 
@@ -33,7 +34,7 @@ export function TaxDeclarationActions({
                     }
                 >
                     <FileCheck size={16} aria-hidden />
-                    Final proof
+                    {String(finalProofStatus || "").toLowerCase() === "rejected" ? "Amend again" : "Final proof"}
                     {finalProofNeedsAction && (
                         <span className="tax-decl-quick-btn-badge">Action needed</span>
                     )}

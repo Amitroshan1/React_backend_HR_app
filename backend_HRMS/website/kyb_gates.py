@@ -36,7 +36,6 @@ ACCOUNTS_KYB_PATH_MARKERS = (
     "/payroll/loans",
     "/payroll/leave-encashment",
     "/payroll/fnf",
-    "/payroll-summary",
     "/payroll-batches",
     "/compliance/",
     "/ctc-breakup/calculate",

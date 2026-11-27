@@ -181,3 +181,34 @@ def test_admin_reject_goes_to_hr_history(app):
     assert body["history"][0]["noc_application_id"] == 71
     assert body["history"][0]["hr_document_filename"] == "travel.pdf"
     assert body["summary"]["rejected"] == 1
+
+
+def test_employee_submit_noc_returns_success_and_lists_immediately(app):
+    """Apply NOC POST used to 500 after save by serializing department key strings."""
+    client = app.test_client()
+    with patch(
+        "website.leave_attendence.send_noc_application_department_email",
+        return_value=(True, "ok"),
+    ):
+        created = client.post(
+            "/api/leave/noc-applications",
+            json={
+                "request_type": "banking_bonafide",
+                "details": "Need a bonafide letter for salary account opening.",
+                "other_reason": "",
+                "department_keys": [],
+            },
+            headers=_emp(app),
+        )
+    body = created.get_json() or {}
+    assert created.status_code == 201, body
+    assert body.get("success") is True
+    assert body.get("request", {}).get("id")
+    assert body["request"]["request_type"] == "banking_bonafide"
+    assert "Internal Server Error" not in str(body)
+
+    listing = client.get("/api/leave/noc-applications", headers=_emp(app))
+    listed = listing.get_json() or {}
+    assert listing.status_code == 200, listed
+    ids = [item.get("id") for item in listed.get("requests") or []]
+    assert body["request"]["id"] in ids

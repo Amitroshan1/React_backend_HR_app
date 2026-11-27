@@ -1729,8 +1729,13 @@ NOC_APPLICATION_TYPES = {
 
 
 def _serialize_noc_application(row, department_rows=None, final_noc=None):
-    department_rows = department_rows or []
-    department_keys = [(department_row.department_key or "").upper() for department_row in department_rows]
+    department_rows = list(department_rows or [])
+    if department_rows and not hasattr(department_rows[0], "department_key"):
+        # POST used to pass department key strings; treat those as labels only.
+        department_keys = [str(key or "").upper() for key in department_rows if str(key or "").strip()]
+        department_rows = []
+    else:
+        department_keys = [(department_row.department_key or "").upper() for department_row in department_rows]
     if not department_keys and row.request_type != "exit_no_dues":
         department_keys = ["HR"]
     return {
@@ -2065,12 +2070,37 @@ def employee_noc_applications():
     response_departments = [key for key in department_keys]
     message = "Your request was submitted successfully."
     message += " Department emails were sent." if all_email_sent else " The request was saved, but one or more department emails could not be sent."
+    department_rows_for_payload = []
+    if request_type == "exit_no_dues" and active_separation:
+        department_rows_for_payload = NocDepartmentRequest.query.filter_by(
+            admin_id=admin.id,
+            resignation_id=active_separation.id,
+        ).order_by(NocDepartmentRequest.requested_at.desc(), NocDepartmentRequest.id.desc()).all()
+    try:
+        request_payload = _serialize_noc_application(row, department_rows_for_payload)
+    except Exception:
+        current_app.logger.exception("NOC application serialize after save failed")
+        request_payload = {
+            "id": row.id,
+            "request_type": request_type,
+            "request_label": NOC_APPLICATION_TYPES.get(request_type, request_type),
+            "other_reason": other_reason or None,
+            "details": details,
+            "status": row.status or "Pending",
+            "hr_remarks": "",
+            "created_at": isoformat_api(row.created_at) if row.created_at else None,
+            "separation_id": row.separation_id,
+            "department_keys": response_departments,
+            "department_labels": [_NOC_KEY_LABELS.get(key, key) for key in response_departments],
+            "department_requests": [],
+            "final_noc": None,
+        }
     return jsonify({
         "success": True,
         "message": message,
         "email_sent": all_email_sent,
         "departments": response_departments,
-        "request": _serialize_noc_application(row, response_departments),
+        "request": request_payload,
     }), 201
 
 

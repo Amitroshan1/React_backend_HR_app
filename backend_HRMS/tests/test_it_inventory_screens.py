@@ -261,7 +261,7 @@ class Browser:
         qty = [
             ("qty", i["id"], self._chip(i["category"]), (i["name"], i["name"], ""), i["notWorkingQuantity"], None)
             for i in self.inventory
-            if str(i["category"] or "").lower() in ("accessories", "consumables", "stock")
+            if str(i["category"] or "").lower() in ("accessories", "consumables", "accessory", "consumable", "stock")
             and _resolve(i) == tab and i["notWorkingQuantity"] > 0
         ]
         return units + qty
@@ -273,7 +273,7 @@ class Browser:
             if _resolve(i) != tab or i["repairQuantity"] <= 0:
                 continue
             qty = i["repairQuantity"]
-            if str(i["category"] or "").lower() not in ("accessories", "consumables", "stock"):
+            if str(i["category"] or "").lower() not in ("accessories", "consumables", "accessory", "consumable", "stock"):
                 qty -= sum(1 for u in units if str(u["inventoryId"]) == str(i["id"]))
             for n in range(1, qty + 1):
                 rows.append(("qty", i["id"], self._chip(i["category"]), (i["name"], i["name"], ""), qty, n))
@@ -704,3 +704,356 @@ def test_other_tenant_rows_never_show(on):
     assert "DEL-T2" not in [d["deleteCode"] for d in dead["logs"]]
     removed = _get(on, "/api/it/inventory/removed-it")
     assert "RIT-T2" not in [r["removedCode"] for r in removed["removed_assets"]]
+
+
+def test_it_remove_shows_in_removed_from_it():
+    t = datetime(2025, 4, 1, 9, 0, 0)
+    app = make_app(extra_config={"API_PAGINATION_V1": True})
+    with app.app_context():
+        db.create_all()
+        seed(n=2)
+        db.session.add(
+            ITAssetUnit(
+                id=88030,
+                inventory_item_id=10,
+                unit_code="AST-88030",
+                asset_name="IT Laptop",
+                category="Hardware",
+                status="available",
+                serial_number="SN-IT-88030",
+                created_at=t,
+                updated_at=t,
+            )
+        )
+        db.session.add(
+            ITInventoryItem(
+                id=88031,
+                tenant_id=1,
+                inventory_code="INV-88031",
+                name="IT Headset",
+                category="Accessories",
+                inventory_category="IT Assets",
+                created_by_admin_id=1,
+                total_quantity=4,
+                available_quantity=4,
+            )
+        )
+        db.session.commit()
+    client, headers = app.test_client(), it_headers(app)
+    gone = client.delete(
+        "/api/it/units/88030",
+        json={"remark": "Retired by IT for inventory handoff", "reason_code": "PERMANENT_DELETE", "condition_grade": "Fail"},
+        headers=headers,
+    )
+    assert gone.status_code == 200, gone.get_json()
+    qty = client.post(
+        "/api/it/inventory/items/88031/quantity-status",
+        json={"action": "removed", "quantity": 1, "remark": "Sent to inventory team"},
+        headers=headers,
+    )
+    assert qty.status_code == 200, qty.get_json()
+    body = _get((client, headers), "/api/it/inventory/removed-it")
+    names = [r.get("name") or "" for r in body["removed_assets"]]
+    assert any("IT Laptop" in n for n in names)
+    assert any("IT Headset" in n for n in names)
+    searched = _get((client, headers), _q("/api/it/inventory/removed-it", q="IT Headset"))
+    assert any("IT Headset" in (r.get("name") or "") for r in searched["removed_assets"])
+    with app.app_context():
+        db.session.remove()
+        db.drop_all()
+
+
+def test_remove_qty_item_appears_in_dead_assets():
+    app = make_app(extra_config={"API_PAGINATION_V1": True})
+    with app.app_context():
+        db.create_all()
+        seed(n=2)
+        db.session.add(
+            ITInventoryItem(
+                id=88020,
+                tenant_id=1,
+                inventory_code="INV-88020",
+                name="USB Mouse",
+                category="Accessories",
+                inventory_category="IT Assets",
+                created_by_admin_id=1,
+                total_quantity=3,
+                available_quantity=0,
+            )
+        )
+        db.session.add(
+            ITInventoryItem(
+                id=88021,
+                tenant_id=1,
+                inventory_code="INV-88021",
+                name="AA Batteries",
+                category="Consumables",
+                inventory_category="IT Assets",
+                created_by_admin_id=1,
+                total_quantity=8,
+                available_quantity=0,
+            )
+        )
+        db.session.commit()
+    client, headers = app.test_client(), it_headers(app)
+    acc = client.post(
+        "/api/it/inventory/items/88020/quantity-status",
+        json={"action": "removed", "quantity": 1, "remark": "Broken clicker, dispose"},
+        headers=headers,
+    )
+    assert acc.status_code == 200, acc.get_json()
+    assert acc.get_json()["message"] == "Moved to Dead Assets."
+    assert acc.get_json()["item"]["availableQuantity"] == 2
+    cons = client.post(
+        "/api/it/inventory/items/88021/quantity-status",
+        json={"action": "removed", "quantity": 2},
+        headers=headers,
+    )
+    assert cons.status_code == 200, cons.get_json()
+    assert cons.get_json()["item"]["availableQuantity"] == 6
+    dead = _get((client, headers), _q("/api/it/inventory/dead-assets", inventory_category="IT Assets"))
+    names = [d.get("assetName") or "" for d in dead["logs"]]
+    assert any("USB Mouse" in n for n in names)
+    assert any("AA Batteries" in n for n in names)
+    with app.app_context():
+        db.session.remove()
+        db.drop_all()
+
+
+def test_not_working_restores_wiped_qty_and_lists_row():
+    app = make_app(extra_config={"API_PAGINATION_V1": True})
+    with app.app_context():
+        db.create_all()
+        seed(n=2)
+        db.session.add(
+            ITInventoryItem(
+                id=88010,
+                tenant_id=1,
+                inventory_code="INV-88010",
+                name="HDMI Cable",
+                category="Accessories",
+                inventory_category="IT Assets",
+                created_by_admin_id=1,
+                total_quantity=5,
+                available_quantity=0,
+                assigned_quantity=0,
+                not_working_quantity=0,
+                repair_quantity=0,
+            )
+        )
+        db.session.add(
+            ITInventoryItem(
+                id=88011,
+                tenant_id=1,
+                inventory_code="INV-88011",
+                name="Screen wipes",
+                category="Consumable",
+                inventory_category="IT Assets",
+                created_by_admin_id=1,
+                total_quantity=6,
+                available_quantity=0,
+                assigned_quantity=0,
+                not_working_quantity=0,
+                repair_quantity=0,
+            )
+        )
+        db.session.commit()
+    client, headers = app.test_client(), it_headers(app)
+    shown = client.get("/api/it/inventory/items/88010", headers=headers)
+    assert shown.status_code == 200, shown.get_json()
+    assert shown.get_json()["item"]["availableQuantity"] == 5
+    moved = client.post(
+        "/api/it/inventory/items/88010/quantity-status",
+        json={"action": "notWorking", "quantity": 1, "remark": "Port damaged in transit today"},
+        headers=headers,
+    )
+    assert moved.status_code == 200, moved.get_json()
+    assert moved.get_json()["message"] == "Marked Not Working."
+    item = moved.get_json()["item"]
+    assert item["availableQuantity"] == 4 and item["notWorkingQuantity"] == 1
+    cons = client.post(
+        "/api/it/inventory/items/88011/quantity-status",
+        json={"action": "notWorking", "quantity": 2},
+        headers=headers,
+    )
+    assert cons.status_code == 200, cons.get_json()
+    citem = cons.get_json()["item"]
+    assert citem["availableQuantity"] == 4 and citem["notWorkingQuantity"] == 2
+    listed = client.get(
+        "/api/it/inventory/status-rows?status=not_working&inventory_category=IT+Assets",
+        headers=headers,
+    )
+    assert listed.status_code == 200, listed.get_json()
+    names = [
+        (r.get("item") or {}).get("name") or ""
+        for r in listed.get_json().get("rows") or []
+        if r.get("kind") == "quantity"
+    ]
+    assert "HDMI Cable" in names and "Screen wipes" in names
+    with app.app_context():
+        db.session.remove()
+        db.drop_all()
+
+
+def test_accessory_and_consumable_repair_moves_quantity():
+    app = make_app(extra_config={"API_PAGINATION_V1": True})
+    with app.app_context():
+        db.create_all()
+        seed(n=2)
+        db.session.commit()
+    client, headers = app.test_client(), it_headers(app)
+
+    acc = client.post(
+        "/api/it/inventory/items",
+        json={
+            "name": "USB Hub",
+            "category": "Accessories",
+            "inventory_category": "IT Assets",
+            "initial_quantity": 4,
+        },
+        headers=headers,
+    )
+    assert acc.status_code == 201, acc.get_json()
+    acc_id = acc.get_json()["item"]["id"]
+    cons = client.post(
+        "/api/it/inventory/items",
+        json={
+            "name": "Toner pack",
+            "category": "Consumable",
+            "inventory_category": "IT Assets",
+            "initial_quantity": 3,
+        },
+        headers=headers,
+    )
+    assert cons.status_code == 201, cons.get_json()
+    cons_id = cons.get_json()["item"]["id"]
+
+    repaired = client.post(
+        f"/api/it/inventory/items/{acc_id}/quantity-status",
+        json={"action": "repair", "quantity": 1, "remark": "Screen flicker"},
+        headers=headers,
+    )
+    assert repaired.status_code == 200, repaired.get_json()
+    assert repaired.get_json()["message"] == "Sent to Repair."
+    body = repaired.get_json()["item"]
+    assert body["availableQuantity"] == 3 and body["repairQuantity"] == 1
+
+    cons_fixed = client.post(
+        f"/api/it/inventory/items/{cons_id}/quantity-status",
+        json={"action": "repair", "quantity": 2},
+        headers=headers,
+    )
+    assert cons_fixed.status_code == 200, cons_fixed.get_json()
+    cbody = cons_fixed.get_json()["item"]
+    assert cbody["availableQuantity"] == 1 and cbody["repairQuantity"] == 2
+
+    listed = client.get(
+        "/api/it/inventory/status-rows?status=repair&inventory_category=IT+Assets",
+        headers=headers,
+    )
+    assert listed.status_code == 200, listed.get_json()
+    names = []
+    for r in listed.get_json().get("rows") or []:
+        if r.get("kind") == "quantity":
+            names.append((r.get("item") or {}).get("name") or "")
+        else:
+            names.append((r.get("unit") or {}).get("assetName") or "")
+    assert any("USB Hub" in n for n in names)
+    assert any("Toner pack" in n for n in names)
+    with app.app_context():
+        db.session.remove()
+        db.drop_all()
+
+
+def test_edit_unit_brand_and_serial_round_trip():
+    t = datetime(2025, 3, 2, 9, 0, 0)
+    app = make_app(extra_config={"API_PAGINATION_V1": True})
+    with app.app_context():
+        db.create_all()
+        seed(n=2)
+        db.session.add(
+            ITAssetUnit(
+                id=88002,
+                inventory_item_id=10,
+                unit_code="AST-88002",
+                asset_name="Office Laptop",
+                category="Hardware",
+                status="available",
+                brand="OldBrand",
+                serial_number="OLD-SN",
+                created_at=t,
+                updated_at=t,
+            )
+        )
+        db.session.commit()
+    client, headers = app.test_client(), it_headers(app)
+    patched = client.patch(
+        "/api/it/units/88002",
+        json={"brand": "Dell", "serial_number": "SN-UPDATED", "asset_name": "Office Laptop"},
+        headers=headers,
+    )
+    assert patched.status_code == 200, patched.get_json()
+    unit = patched.get_json()["unit"]
+    assert unit["brand"] == "Dell" and unit["serialNumber"] == "SN-UPDATED"
+    detail = client.get("/api/it/inventory/items/10", headers=headers)
+    assert detail.status_code == 200, detail.get_json()
+    body = detail.get_json()
+    match = next(u for u in body["units"] if u["id"] == 88002)
+    assert match["brand"] == "Dell" and match["serialNumber"] == "SN-UPDATED"
+    listed = client.get("/api/it/units?inventory_id=10&per_page=200", headers=headers)
+    listed_unit = next(u for u in listed.get_json()["units"] if u["id"] == 88002)
+    assert listed_unit["brand"] == "Dell" and listed_unit["serialNumber"] == "SN-UPDATED"
+    with app.app_context():
+        db.session.remove()
+        db.drop_all()
+
+
+def test_remove_available_unit_appears_in_dead_assets():
+    """Available Assets Remove must write a Dead Assets row searchable by name and asset id."""
+    t = datetime(2025, 3, 1, 9, 0, 0)
+    app = make_app(extra_config={"API_PAGINATION_V1": True})
+    with app.app_context():
+        db.create_all()
+        seed(n=2)
+        db.session.add(
+            ITAssetUnit(
+                id=88001,
+                inventory_item_id=10,
+                unit_code="AST-88001",
+                asset_name="Spare Monitor",
+                category="IT Assets",
+                status="available",
+                serial_number="MON-88001",
+                created_at=t,
+                updated_at=t,
+            )
+        )
+        db.session.commit()
+    client, headers = app.test_client(), it_headers(app)
+    removed = client.delete(
+        "/api/it/units/88001",
+        json={"remark": "End of life", "reason_code": "PERMANENT_DELETE", "condition_grade": "Fail"},
+        headers=headers,
+    )
+    assert removed.status_code == 200, removed.get_json()
+    log = removed.get_json().get("log") or {}
+    assert log.get("assetName") == "Spare Monitor"
+    assert "AST-88001" in (log.get("serialNumber") or "")
+    dead = _get((client, headers), _q("/api/it/inventory/dead-assets", inventory_category="IT Assets"))
+    codes = [d["deleteCode"] for d in dead["logs"]]
+    assert log["deleteCode"] in codes
+    by_name = _get(
+        (client, headers),
+        _q("/api/it/inventory/dead-assets", inventory_category="IT Assets", q="Spare Monitor"),
+    )
+    assert log["deleteCode"] in [d["deleteCode"] for d in by_name["logs"]]
+    by_id = _get(
+        (client, headers),
+        _q("/api/it/inventory/dead-assets", inventory_category="IT Assets", q="AST-88001"),
+    )
+    assert log["deleteCode"] in [d["deleteCode"] for d in by_id["logs"]]
+    gone = client.get("/api/it/units/88001", headers=headers)
+    assert gone.status_code in (404, 400, 405)
+    with app.app_context():
+        db.session.remove()
+        db.drop_all()

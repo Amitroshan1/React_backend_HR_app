@@ -61,8 +61,8 @@ export default function NocApplication() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setLoading(true);
     setError('');
     setEmployee({
       name: sessionUser.name || sessionUser.first_name || sessionUser.user_name || '',
@@ -146,12 +146,15 @@ export default function NocApplication() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.message || 'Unable to submit your request.');
-      setSuccess(data.message || 'Your request was submitted to Human Resources.');
+      setSuccess(data.message || 'Your request was submitted successfully.');
       setRequestType('');
       setDepartmentKeys([]);
       setOtherReason('');
       setDetails('');
-      await load();
+      if (data.request?.id) {
+        setRequests((current) => [data.request, ...current.filter((item) => String(item.id) !== String(data.request.id))]);
+      }
+      await load({ quiet: true });
     } catch (err) {
       setError(err.message || 'Unable to submit your request.');
     } finally {

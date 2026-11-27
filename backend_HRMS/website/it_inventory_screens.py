@@ -12,6 +12,7 @@ from sqlalchemy.orm import defer, selectinload
 from . import db
 from .it import (
     _INVENTORY_MEDIA,
+    _apply_qty_managed_counts,
     _effective_inventory_category,
     _err,
     _ok,
@@ -29,7 +30,7 @@ from .query_utils import ListParams, ci_equals, list_params, page_slice
 INV_CATEGORIES = ("IT Assets", "Fixed Assets", "Transport Assets", "Infrastructure Assets")
 _STOCK_TABS = ("Fixed Assets", "Office Assets", "Infrastructure Assets", "Transport Assets")
 _IT_LINE_CATEGORIES = {"hardware", "software", "accessories", "consumables", "consumable", "accessory"}
-_QTY_CATEGORIES = {"accessories", "consumables", "stock"}
+_QTY_CATEGORIES = {"accessories", "consumables", "accessory", "consumable", "stock"}
 _STATUS_ROWS = ("not_working", "repair")
 _SUMMARY_UNITS = ListParams(summary=True)
 _MOBILE_TABLET = ("Mobile", "Tablet")
@@ -40,7 +41,10 @@ _OVERVIEW_VIEWS = ("overview", "total")
 
 def _tab_for(category, explicit=""):
     """Inventory tab for a catalog category plus stored tab; "" when it belongs to none."""
-    cat = (category or "").strip().lower()
+    raw = (category or "").strip()
+    if raw in INV_CATEGORIES and not (explicit or "").strip():
+        return raw
+    cat = raw.lower()
     explicit = (explicit or "").strip()
     if cat == "vehicle":
         return "Transport Assets"
@@ -82,7 +86,10 @@ def _tab_arg():
 
 
 def _catalog():
-    return it_query(ITInventoryItem).options(*_INVENTORY_MEDIA).order_by(ITInventoryItem.id.desc()).all()
+    rows = it_query(ITInventoryItem).options(*_INVENTORY_MEDIA).order_by(ITInventoryItem.id.desc()).all()
+    for row in rows:
+        _apply_qty_managed_counts(row)
+    return rows
 
 
 def _count_by(rows, key):
@@ -150,6 +157,7 @@ def _dead_log_rows(catalog, tab):
             ITDeletedAssetLog.category,
             ITDeletedAssetLog.asset_name,
             ITDeletedAssetLog.serial_number,
+            ITDeletedAssetLog.delete_code,
         )
         .order_by(ITDeletedAssetLog.deleted_at.desc(), ITDeletedAssetLog.id.desc())
         .all()
@@ -602,12 +610,19 @@ def inventory_dead_assets():
             "category": r.category or "Hardware",
             "assetName": r.asset_name,
             "serial": r.serial_number,
+            "deleteCode": r.delete_code,
         }
         for r in _dead_log_rows(_catalog(), tab)
     ]
     counts = _count_by(rows, "category")
     bucket = (request.args.get("category") or "").strip() or "All"
-    rows = _filtered(rows, "category", bucket, params.search.lower(), ("assetName", "assetName", "serial"))
+    rows = _filtered(
+        rows,
+        "category",
+        bucket,
+        params.search.lower(),
+        ("assetName", "serial", "deleteCode"),
+    )
     page, pagination = page_slice(rows, params)
     ids = [r["id"] for r in page]
     by_id = {}
@@ -654,10 +669,12 @@ def inventory_removed_it():
             "name": r.name,
             "id": str(r.id),
             "owner": payload["ownerName"] or "—",
+            "reason": r.reason or "",
+            "code": r.removed_code or "",
         })
     counts = _count_by(rows, "category")
     bucket = (request.args.get("category") or "").strip() or "All"
-    rows = _filtered(rows, "category", bucket, params.search.lower(), ("name", "id", "owner"))
+    rows = _filtered(rows, "category", bucket, params.search.lower(), ("name", "id", "owner", "reason", "code"))
     page, pagination = page_slice(rows, params)
     body = {"removed_assets": [r["payload"] for r in page], "counts": counts}
     if pagination is not None:

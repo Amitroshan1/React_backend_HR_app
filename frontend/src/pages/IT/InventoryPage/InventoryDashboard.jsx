@@ -27,6 +27,7 @@ import {
   createDeletedLogAPI,
   deleteAssetUnitAPI,
   updateInventoryItemAPI,
+  updateInventoryQuantityStatusAPI,
   getDeletedAssetsFromStorage,
   getSoftwareInventory,
   fetchInventorySummaryAPI,
@@ -61,6 +62,7 @@ import {
   deletedLogBelongsToInventoryCategory,
   filterInventoryByCategory,
   getAssignedColumnLabel,
+  qtyManagedAvailable,
   resolveInventoryCategory,
   getHardwareFields,
   getMobileTabletHardwareFields,
@@ -291,7 +293,7 @@ function mapInventoryItem(item, firstUnit = getUnitsForAsset(item.id, item.name,
     name:              item.name,
     hwType:            item.hwType             ?? null,
     total:             Number(item.totalQuantity)     || 0,
-    available:         Number(item.availableQuantity) || 0,
+    available:         qtyManagedAvailable(item),
     inventoryCategory,
     assigned:          Number(item.assignedQuantity)  || 0,
     notWorking:        Number(item.notWorkingQuantity) || 0,
@@ -1636,61 +1638,20 @@ function useAssetActions(onRefresh) {
     const item = { ...inventory[index] };
 
     const available = Number(item.availableQuantity || 0);
-    const total = Number(item.totalQuantity || 0);
     const safeQty = Math.max(1, Math.min(Number(qty || 0), available));
     if (safeQty < 1) {
       toast.error("No available quantity left for this action.");
       return;
     }
 
-    if (actionKey === "repair") {
-      item.repairQuantity = Number(item.repairQuantity || 0) + safeQty;
-      item.availableQuantity = Math.max(0, available - safeQty);
-    } else if (actionKey === "notWorking") {
-      item.notWorkingQuantity = Number(item.notWorkingQuantity || 0) + safeQty;
-      item.availableQuantity = Math.max(0, available - safeQty);
-    } else if (actionKey === "removed") {
-      item.totalQuantity = Math.max(0, total - safeQty);
-      item.availableQuantity = Math.max(0, available - safeQty);
-    }
-
-    const actionLabel =
-      actionKey === "repair"
-        ? "Repair"
-        : actionKey === "notWorking"
-          ? "Not Working"
-          : "Removed";
-    const notesPayload = remarkText
-      ? {
-          notes: [
-            String(item.notes || "").trim(),
-            `[${actionLabel} x${safeQty}] ${remarkText}`,
-          ]
-            .filter(Boolean)
-            .join("\n")
-            .slice(0, 500),
-        }
-      : {};
-
     try {
-      await updateInventoryItemAPI(row.id, {
-        total_quantity: item.totalQuantity,
-        available_quantity: item.availableQuantity,
-        assigned_quantity: item.assignedQuantity,
-        not_working_quantity: item.notWorkingQuantity,
-        repair_quantity: item.repairQuantity,
-        ...notesPayload,
+      await updateInventoryQuantityStatusAPI(row.id, {
+        action: actionKey,
+        quantity: safeQty,
+        remark: remarkText,
+        removedBy: actionMeta?.removedBy,
       });
       if (actionKey === "removed") {
-        await createDeletedLogAPI({
-          delete_code: `del-qty-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          inventory_item_id: Number(row.id) || null,
-          deleted_by_name: actionMeta?.removedBy || "Inventory",
-          asset_name: row.name,
-          category: row.category || "Accessories",
-          serial_number: "",
-          reason: remarkText || `Dead quantity marked: ${safeQty}`,
-        });
         await syncDeletedLogsFromAPI();
       }
       await syncITDataFromAPI();
@@ -1742,29 +1703,35 @@ function useAssetActions(onRefresh) {
       assetName:    unit?.assetName || removeTarget.name,
       brand:        unit?.brand     || removeTarget.name,
       model:        unit?.model     || "",
-      category:     unit?.category  || removeTarget.inventoryCategory || "Hardware",
+      category:     unit?.category  || removeTarget.category || "Hardware",
       serialNumber: unit?.serialNumber || "",
     };
 
     if (canUseApi) {
       try {
         // Soft-delete unit first (404 = already gone). Then log history without requiring FK.
+        let delRes = null;
         try {
-          await deleteAssetUnitAPI(unitIdNum, retireFields);
+          delRes = await deleteAssetUnitAPI(unitIdNum, retireFields);
         } catch (delErr) {
           const status = delErr?.status || delErr?.response?.status;
           if (status !== 404) throw delErr;
         }
-        await createDeletedLogAPI({
-          delete_code: entry.deletedId,
-          asset_unit_id: null,
-          inventory_item_id: Number(unit.inventoryId) || Number(removeTarget.id) || null,
-          deleted_by_name: removedBy,
-          asset_name: entry.assetName,
-          category: entry.category,
-          serial_number: entry.serialNumber,
-          reason,
-        });
+        if (!delRes?.log) {
+          await createDeletedLogAPI({
+            delete_code: entry.deletedId,
+            asset_unit_id: null,
+            inventory_item_id: Number(unit?.inventoryId) || Number(removeTarget.id) || null,
+            deleted_by_name: removedBy,
+            asset_name: entry.assetName,
+            category: entry.category,
+            serial_number: [entry.serialNumber, unit?.unitCode || unit?.assetId]
+              .filter(Boolean)
+              .filter((v, i, a) => a.indexOf(v) === i)
+              .join(" / "),
+            reason,
+          });
+        }
         await syncITDataFromAPI();
         await syncDeletedLogsFromAPI();
       } catch (err) {

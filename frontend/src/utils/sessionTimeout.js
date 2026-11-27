@@ -8,8 +8,7 @@ import {
   getAccessToken,
   hasSignedInHint,
   isLikelyJwt,
-  markSignedIn,
-  setAccessToken,
+  refreshAccessSession,
 } from "./authSession";
 
 function sessionToken() {
@@ -348,34 +347,15 @@ async function doRefreshSessionToken() {
     endSession("1");
     return false;
   }
-  try {
-    const res = await fetch("/api/auth/session/refresh", {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        ...(isLikelyJwt(token) ? { Authorization: `Bearer ${token}` } : {}),
-        "Content-Type": "application/json",
-      },
-    });
-    if (res.status === 401) {
-      const body = await readJsonBody(res);
-      if (shouldEndSessionFor401(body)) {
-        const reason = await noteSessionEnded(res);
-        endSession(reason);
-      }
-      return false;
-    }
-    if (!res.ok) return false;
-    const data = await res.json().catch(() => ({}));
-    if (data?.success) {
-      if (data?.token) setAccessToken(data.token);
-      else markSignedIn();
-      persistSessionTimeoutMinutes(data.session_timeout_minutes);
-      lastRefreshAt = Date.now();
-      return true;
-    }
-  } catch {
-    /* ignore transient network errors */
+  const result = await refreshAccessSession();
+  if (result.endSession) {
+    endSession(result.code === TENANT_SUSPENDED_CODE ? TENANT_SUSPENDED_CODE : "1");
+    return false;
+  }
+  if (result.ok) {
+    persistSessionTimeoutMinutes(result.data?.session_timeout_minutes);
+    lastRefreshAt = Date.now();
+    return true;
   }
   return false;
 }

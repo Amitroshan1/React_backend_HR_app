@@ -1,12 +1,25 @@
 import { FiRefreshCw, FiShield, FiUser } from "react-icons/fi";
+import { NO_INTERNET_MESSAGE } from "../../utils/networkStatus";
 import "./ProfileStatusPanel.css";
 
 export function classifyHomepageFailure(status, body = {}) {
+    const offline =
+        body.error_code === "NETWORK_ERROR"
+        || (typeof navigator !== "undefined" && navigator.onLine === false && !status);
+    if (offline) {
+        return {
+            kind: "load_failed",
+            code: "NETWORK_ERROR",
+            contact: "network",
+            title: NO_INTERNET_MESSAGE,
+            reason: "The app could not reach the server because this device is offline.",
+            nextStep: "Reconnect, then tap Try again.",
+        };
+    }
     const code = body.error_code || (
         status === 401 ? "SESSION_EXPIRED"
             : status === 404 ? "USER_NOT_FOUND"
-                : status ? "HOMEPAGE_UNAVAILABLE"
-                    : "NETWORK_ERROR"
+                : "HOMEPAGE_UNAVAILABLE"
     );
     if (code === "SESSION_EXPIRED") {
         return {
@@ -58,7 +71,7 @@ export function deriveProfileGaps(result) {
     if (leaveMissing) {
         gaps.push({ key: "leave_balance", label: "Leave balance" });
     }
-    const hasManager = ["l1", "l2", "l3"].some((k) => managers[k]?.name);
+    const hasManager = Boolean(String(managers.l1?.name || "").trim());
     if (!hasManager) {
         gaps.push({ key: "manager", label: "Reporting manager" });
     }
@@ -69,7 +82,8 @@ export function ProfileStatusPanel({ status, onRetry, retrying = false }) {
     if (!status || status.kind === "ok") return null;
 
     const isAdmin = status.contact === "admin";
-    const ContactIcon = isAdmin ? FiShield : FiUser;
+    const isNetwork = status.contact === "network" || status.code === "NETWORK_ERROR";
+    const ContactIcon = isNetwork ? FiRefreshCw : (isAdmin ? FiShield : FiUser);
 
     return (
         <section
@@ -85,7 +99,7 @@ export function ProfileStatusPanel({ status, onRetry, retrying = false }) {
             </div>
             <div className="profile-status-panel__copy">
                 <p className="profile-status-panel__kicker">
-                    {isAdmin ? "System" : "HR setup"}
+                    {isNetwork ? "Network" : isAdmin ? "System" : "HR setup"}
                 </p>
                 <h3>{status.title}</h3>
                 <p className="profile-status-panel__reason">{status.reason}</p>
@@ -110,10 +124,12 @@ export function ProfileStatusPanel({ status, onRetry, retrying = false }) {
                 ) : null}
             </div>
             <aside className="profile-status-panel__contact">
-                <span className="profile-status-panel__contact-label">Report to</span>
-                <strong>{isAdmin ? "Admin" : "HR"}</strong>
+                <span className="profile-status-panel__contact-label">{isNetwork ? "Status" : "Report to"}</span>
+                <strong>{isNetwork ? "Offline" : isAdmin ? "Admin" : "HR"}</strong>
                 <span className="profile-status-panel__contact-hint">
-                    {isAdmin
+                    {isNetwork
+                        ? "This is not an account or HR data problem."
+                        : isAdmin
                         ? "They can check your login and system access."
                         : "They can complete your employee record."}
                 </span>

@@ -28,7 +28,7 @@ import { AppFooter } from "./AppFooter";
 import { useFloatingNotifications } from "../../hooks/useFloatingNotifications";
 // import "../../pages/style/Dashboard.css"
 import "../../pages/Dashboard/Dashboard.css"
-import { getAccessToken, hasSignedInHint } from "../../utils/authSession";
+import { getAccessToken, hasSignedInHint, isSessionRefreshInFlight } from "../../utils/authSession";
 import { withFileCacheBust } from "../../utils/secureFileUrl";
 import { normalizePhotoUrl } from "../../utils/userPhoto";
 import { TransitionRemarkProvider } from "../../pages/IT/itam/TransitionRemarkModal";
@@ -159,14 +159,13 @@ export const AppLayout = () => {
         }
     }, [location.pathname, navigate, userData?.user, loadingUser]);
 
-    /* No token: send back to login. Do not bounce on the first paint of a just-issued session. */
+    /* No token: send back to login. Do not bounce while cookie rehydrate is in flight. */
     useEffect(() => {
-        if (hasSignedInHint()) return undefined;
+        if (hasSignedInHint() || isSessionRefreshInFlight()) return undefined;
         const t = window.setTimeout(() => {
-            if (!hasSignedInHint()) {
-                navigate("/", { replace: true });
-            }
-        }, 2000);
+            if (hasSignedInHint() || isSessionRefreshInFlight()) return;
+            navigate("/", { replace: true });
+        }, 2500);
         return () => window.clearTimeout(t);
     }, [hasToken, navigate]);
 

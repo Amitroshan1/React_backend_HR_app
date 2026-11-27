@@ -8236,11 +8236,13 @@ def search_employee_api():
             "message": "emp_type and circle are required"
         }), 400
 
+    emp_type_norm = (emp_type or "").strip()
+    circle_norm = (circle or "").strip()
     employees = (
         Admin.query.filter(
             admin_tenant_clause(),
-            Admin.emp_type == emp_type,
-            Admin.circle == circle,
+            func.lower(func.coalesce(Admin.emp_type, "")) == emp_type_norm.lower(),
+            func.lower(func.coalesce(Admin.circle, "")) == circle_norm.lower(),
             # Treat NULL as legacy-active/non-exited; exclude explicitly inactive or exited employees.
             or_(Admin.is_active == True, Admin.is_active.is_(None)),
             or_(Admin.is_exited == False, Admin.is_exited.is_(None))
@@ -8253,9 +8255,16 @@ def search_employee_api():
         for emp_row in Employee.query.filter(Employee.admin_id.in_(admin_ids)).all():
             desig_by_admin[emp_row.admin_id] = emp_row.designation
 
+    empty_message = (
+        f"No employee exists for {emp_type_norm} in {circle_norm}. "
+        "Select a different department or circle and search again."
+        if not employees
+        else None
+    )
     return jsonify({
         "success": True,
         "count": len(employees),
+        "message": empty_message,
         "employees": [
             {
                 "id": e.id,

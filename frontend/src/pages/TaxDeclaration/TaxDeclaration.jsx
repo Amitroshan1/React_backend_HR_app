@@ -226,6 +226,7 @@ export const TaxDeclaration = () => {
     const [declarationPlace, setDeclarationPlace] = useState("");
     const [uploadDocType, setUploadDocType] = useState("pan_card");
     const [uploadingKey, setUploadingKey] = useState(null);
+    const documentsRef = useRef([]);
     const [declarationPhase, setDeclarationPhase] = useState("provisional");
     const [finalProofStatus, setFinalProofStatus] = useState("");
     const [persistedDeclItems, setPersistedDeclItems] = useState([]);
@@ -234,6 +235,36 @@ export const TaxDeclaration = () => {
     const regime = normalizeRegime(taxRegime);
     const isLocked = ["submitted", "verified", "returned_to_accounts", "approved"].includes(status);
     const submissionClosed = submissionDeadline && submissionDeadline.is_open === false;
+    const hasCtcData = Boolean(
+        ctc?.has_ctc
+        || Number(ctc?.monthly_gross) > 0
+        || Number(ctc?.monthly_basic) > 0
+        || Number(ctc?.epf_annual) > 0
+    );
+    const canSubmitDeclaration = Boolean(
+        !saving
+        && !isLocked
+        && !submissionClosed
+        && regimeAccepted
+        && (regime !== "new" || newRegimeAck)
+        && String(declarationPlace || "").trim()
+        && finalAccepted
+    );
+    const submitDisabledReason = saving
+        ? "Saving…"
+        : isLocked
+            ? "This declaration is already submitted."
+            : submissionClosed
+                ? `Submission closed on ${submissionDeadline?.deadline_display || "deadline"}`
+                : !regimeAccepted
+                    ? "Accept the tax regime declaration first."
+                    : (regime === "new" && !newRegimeAck)
+                        ? "Confirm New Tax Regime selection first."
+                        : !String(declarationPlace || "").trim()
+                            ? "Enter Place in the employee declaration."
+                            : !finalAccepted
+                                ? "Accept the final declaration to submit."
+                                : "";
     const finalProofEditable =
         status === "approved" &&
         ["", "draft", "rejected"].includes((finalProofStatus || "").toLowerCase());
@@ -289,6 +320,50 @@ export const TaxDeclaration = () => {
     }, [schema, itemsMap, ctc]);
 
     const generalDocs = useMemo(() => generalDocuments(documents), [documents]);
+    documentsRef.current = documents;
+
+    const revokePendingUrl = (doc) => {
+        if (doc?.pending && typeof doc.url === "string" && doc.url.startsWith("blob:")) {
+            URL.revokeObjectURL(doc.url);
+        }
+    };
+
+    const makePendingDoc = (file, extras = {}) => {
+        const url = URL.createObjectURL(file);
+        return {
+            id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            pending: true,
+            file,
+            url,
+            original_name: file.name,
+            doc_type: extras.doc_type || uploadDocType,
+            section_code: extras.section_code || null,
+            item_code: extras.item_code || null,
+        };
+    };
+
+    const flushPendingDocuments = async () => {
+        const pending = (documentsRef.current || []).filter((d) => d.pending && d.file);
+        if (!pending.length) return;
+        for (const p of pending) {
+            const fd = new FormData();
+            fd.append("financial_year", financialYear);
+            fd.append("doc_type", p.doc_type || "other");
+            if (p.section_code) fd.append("section_code", p.section_code);
+            if (p.item_code) fd.append("item_code", p.item_code);
+            fd.append("file", p.file);
+            const res = await fetch(`${AUTH_API}/tax-declaration/self/documents`, {
+                method: "POST",
+                headers: authHeaders(),
+                body: fd,
+            });
+            const { ok, data } = await parseApiResponse(res);
+            if (!ok || !data.success) {
+                throw new Error(data.message || `Could not save ${p.original_name || "document"}`);
+            }
+            revokePendingUrl(p);
+        }
+    };
 
     const loadData = useCallback(async (fy) => {
         if (!userId) return;
@@ -327,13 +402,16 @@ export const TaxDeclaration = () => {
             }
             setItemsMap(map);
             setPersistedDeclItems(declItems);
+            setDocuments((prev) => {
+                prev.forEach(revokePendingUrl);
+                return declDocs;
+            });
 
             if (decl) {
                 setStatus(decl.status || "draft");
                 setDeclarationPhase(decl.declaration_phase || "provisional");
                 setFinalProofStatus(decl.final_proof_status || "");
                 setTaxRegime(normalizeRegime(decl.tax_regime) === "old" ? "old" : "new");
-                setDocuments(declDocs);
                 setRegimeAccepted(Boolean(decl.regime_declaration_accepted));
                 setNewRegimeAck(Boolean(decl.new_regime_acknowledged));
                 setFinalAccepted(Boolean(decl.final_declaration_accepted));
@@ -368,7 +446,6 @@ export const TaxDeclaration = () => {
                 setPersistedDeclItems([]);
                 const profRegime = data.profile?.tax_regime || data.employee?.tax_regime;
                 setTaxRegime(normalizeRegime(profRegime) === "old" ? "old" : "new");
-                setDocuments([]);
                 setRegimeAccepted(false);
                 setNewRegimeAck(false);
                 setFinalAccepted(false);
@@ -386,6 +463,10 @@ export const TaxDeclaration = () => {
         else setLoading(false);
     }, [userId, financialYear, loadData]);
 
+    useEffect(() => () => {
+        (documentsRef.current || []).forEach(revokePendingUrl);
+    }, []);
+
     const setItem = (section, code, type, value) => {
         const k = itemKey(section, code);
         setItemsMap((prev) => ({
@@ -401,6 +482,7 @@ export const TaxDeclaration = () => {
     const save = async (submit) => {
         setSaving(true);
         try {
+            await flushPendingDocuments();
             const body = {
                 financial_year: financialYear,
                 tax_regime: taxRegime === "old" ? "Old Tax Regime" : "New Tax Regime",
@@ -432,7 +514,10 @@ export const TaxDeclaration = () => {
             if (savedDecl) {
                 const savedItems = savedDecl.items || [];
                 setPersistedDeclItems(savedItems);
-                setDocuments(savedDecl.documents || documents);
+                setDocuments((prev) => {
+                    prev.forEach(revokePendingUrl);
+                    return savedDecl.documents || [];
+                });
                 const refreshedMap = itemsFromDeclaration(
                     savedItems,
                     schema,
@@ -463,19 +548,11 @@ export const TaxDeclaration = () => {
         const key = itemKey(sec.id, def.code);
         setUploadingKey(key);
         try {
-            const fd = new FormData();
-            fd.append("financial_year", financialYear);
-            fd.append("doc_type", def.document_type || "other");
-            fd.append("section_code", sec.id);
-            fd.append("item_code", def.code);
-            fd.append("file", file);
-            const res = await fetch(`${AUTH_API}/tax-declaration/self/documents`, {
-                method: "POST",
-                headers: authHeaders(),
-                body: fd,
+            const pending = makePendingDoc(file, {
+                doc_type: def.document_type || "other",
+                section_code: sec.id,
+                item_code: def.code,
             });
-            const { ok, data } = await parseApiResponse(res);
-            if (!ok || !data.success) throw new Error(data.message || "Upload failed");
             setItemsMap((prev) => {
                 const k = itemKey(sec.id, def.code);
                 if (prev[k]?.amount != null && prev[k].amount !== "") return prev;
@@ -498,15 +575,16 @@ export const TaxDeclaration = () => {
             });
             setDocuments((prev) => {
                 const filtered = prev.filter((d) => {
+                    const sameItem =
+                        String(d.section_code || "").toUpperCase() === String(sec.id).toUpperCase()
+                        && String(d.item_code || "").toUpperCase() === String(def.code).toUpperCase();
+                    if (sameItem && d.pending) revokePendingUrl(d);
                     if ((d.doc_type || "").toLowerCase() === FINAL_PROOF_DOC_TYPE) return true;
-                    return (
-                        String(d.section_code || "").toUpperCase() !== String(sec.id).toUpperCase()
-                        || String(d.item_code || "").toUpperCase() !== String(def.code).toUpperCase()
-                    );
+                    return !sameItem;
                 });
-                return [...filtered, data.document];
+                return [...filtered, pending];
             });
-            notifySuccess("Document uploaded.");
+            notifyInfo("File added. Save draft to keep it after you log out.");
         } catch (err) {
             notifyError(err.message || "Upload failed");
         } finally {
@@ -519,19 +597,9 @@ export const TaxDeclaration = () => {
         const file = e.target.files?.[0];
         if (!file) return;
         try {
-            const fd = new FormData();
-            fd.append("financial_year", financialYear);
-            fd.append("doc_type", uploadDocType);
-            fd.append("file", file);
-            const res = await fetch(`${AUTH_API}/tax-declaration/self/documents`, {
-                method: "POST",
-                headers: authHeaders(),
-                body: fd,
-            });
-            const { ok, data } = await parseApiResponse(res);
-            if (!ok || !data.success) throw new Error(data.message || "Upload failed");
-            setDocuments((prev) => [...prev, data.document]);
-            notifySuccess("Document uploaded.");
+            const pending = makePendingDoc(file, { doc_type: uploadDocType });
+            setDocuments((prev) => [...prev, pending]);
+            notifyInfo("File added. Save draft to keep it after you log out.");
         } catch (err) {
             notifyError(err.message || "Upload failed");
         } finally {
@@ -540,6 +608,12 @@ export const TaxDeclaration = () => {
     };
 
     const removeDoc = async (docId) => {
+        const current = (documentsRef.current || []).find((d) => d.id === docId);
+        if (current?.pending) {
+            revokePendingUrl(current);
+            setDocuments((prev) => prev.filter((d) => d.id !== docId));
+            return;
+        }
         try {
             const res = await fetch(`${AUTH_API}/tax-declaration/self/documents/${docId}`, {
                 method: "DELETE",
@@ -749,10 +823,11 @@ export const TaxDeclaration = () => {
                         </div>
                     </div>
                     <TaxDeclarationActions
-                        hasCtcData={Boolean(ctc?.has_ctc)}
+                        hasCtcData={hasCtcData}
                         declarationApproved={status === "approved"}
                         finalProofEditable={finalProofEditable}
                         finalProofNeedsAction={finalProofEditable}
+                        finalProofStatus={finalProofStatus}
                     />
                 </div>
 
@@ -927,7 +1002,7 @@ export const TaxDeclaration = () => {
                                     </select>
                                     <label className="tax-decl-upload-btn">
                                         <Upload size={16} />
-                                        {uploadingKey === "general" ? "Uploading…" : "Choose file"}
+                                        {uploadingKey === "general" ? "Adding…" : "Choose file"}
                                         <input
                                             type="file"
                                             hidden
@@ -946,6 +1021,9 @@ export const TaxDeclaration = () => {
                                         <a href={doc.url} target="_blank" rel="noopener noreferrer">
                                             {doc.original_name || doc.doc_type}
                                         </a>
+                                        {doc.pending ? (
+                                            <small className="tax-decl-muted"> Unsaved — use Save draft</small>
+                                        ) : null}
                                         {!isLocked && (
                                             <button type="button" onClick={() => removeDoc(doc.id)}>Remove</button>
                                         )}
@@ -1001,7 +1079,7 @@ export const TaxDeclaration = () => {
                                     <button
                                         type="button"
                                         className="tax-decl-btn tax-decl-btn--secondary"
-                                        disabled={saving || !ctc.has_ctc}
+                                        disabled={saving}
                                         onClick={() => save(false)}
                                     >
                                         {saving ? "Saving…" : "Save draft"}
@@ -1009,13 +1087,9 @@ export const TaxDeclaration = () => {
                                     <button
                                         type="button"
                                         className="tax-decl-btn tax-decl-btn--primary"
-                                        disabled={saving || !ctc.has_ctc || submissionClosed}
+                                        disabled={!canSubmitDeclaration}
                                         onClick={() => save(true)}
-                                        title={
-                                            submissionClosed
-                                                ? `Submission closed on ${submissionDeadline?.deadline_display || "deadline"}`
-                                                : undefined
-                                        }
+                                        title={submitDisabledReason || undefined}
                                     >
                                         {saving ? "Submitting…" : "Submit declaration"}
                                     </button>

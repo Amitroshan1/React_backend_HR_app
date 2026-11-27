@@ -3,6 +3,7 @@ import { ArrowLeft, Search } from 'lucide-react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './UpdateSignUp.css';
 import { getAccessToken } from "../../utils/authSession";
+import { notifyWarning } from "../../utils/notify";
 
 const API_BASE = '/api/HumanResource';
 
@@ -26,6 +27,8 @@ export const UpdateSignUp = ({
   const [employees, setEmployees] = useState(() => persistedSearch?.employees ?? []);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const [emptyMessage, setEmptyMessage] = useState('');
+  const [hasSearched, setHasSearched] = useState(() => Boolean(persistedSearch?.employees));
   const [detailLoadingEmail, setDetailLoadingEmail] = useState(null); // email of row being loaded
   const [detailError, setDetailError] = useState('');
 
@@ -36,6 +39,7 @@ export const UpdateSignUp = ({
 
   const handleSearch = useCallback(async () => {
     setSearchError('');
+    setEmptyMessage('');
     setSearchLoading(true);
     try {
       const params = new URLSearchParams({
@@ -53,7 +57,15 @@ export const UpdateSignUp = ({
       }
       const list = data.employees || [];
       setEmployees(list);
+      setHasSearched(true);
       hasSearchedRef.current = true;
+      if (list.length === 0) {
+        const emptyMsg =
+          data.message
+          || `No employee exists for ${filters.emp_type} in ${filters.circle}. Select a different department or circle and search again.`;
+        setEmptyMessage(emptyMsg);
+        notifyWarning(emptyMsg);
+      }
       if (onPersistSearch) {
         onPersistSearch({
           filters: { emp_type: filters.emp_type, circle: filters.circle },
@@ -210,9 +222,22 @@ export const UpdateSignUp = ({
           </div>
         )}
 
-        {employees.length === 0 && !searchLoading && searchError === '' && (
+        {hasSearched && employees.length === 0 && !searchLoading && (
+          <div className="results-card results-card--empty" role="status">
+            <div className="results-header">
+              <h3>Search Results</h3>
+              <p>{filters.emp_type} employees in {filters.circle}</p>
+            </div>
+            <p className="results-empty-copy">
+              {emptyMessage
+                || `No employee exists for ${filters.emp_type} in ${filters.circle}. Select a different department or circle and search again.`}
+            </p>
+          </div>
+        )}
+
+        {!hasSearched && employees.length === 0 && !searchLoading && searchError === '' && (
           <div className="search-hint">
-            <p>Select Employee Type and Circle, then click Search to see results.</p>
+            <p>Select department and circle, then click Search to see results.</p>
           </div>
         )}
       </div>

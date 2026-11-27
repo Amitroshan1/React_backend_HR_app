@@ -14,6 +14,7 @@ import {
 } from "./taxDeclarationReviewUtils";
 import { notifyError, notifySuccess } from "../../utils/notify";
 import { TdsSettingsPanel } from "./TdsSettingsPanel";
+import { TaxDeclarationReviewDetail } from "./TaxDeclarationReviewDetail";
 import "./TaxDeclaration.css";
 
 export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpenDetail, showCompanySettings = true, queue = "accounts" }) {
@@ -23,6 +24,7 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
     const [loading, setLoading] = useState(true);
     const [fyOptions, setFyOptions] = useState(() => financialYearOptions());
     const [backfillLoading, setBackfillLoading] = useState(false);
+    const [openDeclId, setOpenDeclId] = useState(null);
     const [submissionDeadline, setSubmissionDeadline] = useState(null);
     const [deadlineDate, setDeadlineDate] = useState("");
     const [deadlineLoading, setDeadlineLoading] = useState(false);
@@ -156,9 +158,13 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
     };
 
     const handleOpenDetail = (declId) => {
-        if (onOpenDetail) {
-            onOpenDetail(declId);
+        const id = Number(declId);
+        if (!Number.isFinite(id) || id <= 0) {
+            notifyError("Unable to open this declaration.");
+            return;
         }
+        setOpenDeclId(id);
+        onOpenDetail?.(id);
     };
 
     const handleBackfillRegime = async () => {
@@ -181,6 +187,16 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
             setBackfillLoading(false);
         }
     };
+
+    if (openDeclId) {
+        return (
+            <TaxDeclarationReviewDetail
+                apiBase={apiBase}
+                declId={openDeclId}
+                onBack={() => setOpenDeclId(null)}
+            />
+        );
+    }
 
     return (
         <div className="tax-decl-page tax-decl-review">
@@ -309,7 +325,7 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
                                     <th>Status</th>
                                     <th>Final proof</th>
                                     <th>Submitted</th>
-                                    <th />
+                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -322,6 +338,20 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
                                 )}
                                 {declarations.map((row) => {
                                     const emp = row.employee || {};
+                                    const fps = String(row.final_proof_status || "").toLowerCase();
+                                    const actionLabel =
+                                        fps === "approved"
+                                            ? "Amend"
+                                            : fps === "rejected"
+                                                ? "Amend again"
+                                                : row.status === "submitted"
+                                                    || row.status === "returned_to_accounts"
+                                                    || row.status === "verified"
+                                                    || fps === "submitted"
+                                                    || fps === "verified"
+                                                    || fps === "returned"
+                                                    ? "Review"
+                                                    : "View";
                                     return (
                                         <tr key={row.id}>
                                             <td data-label="Employee">{emp.employee_name || "—"}</td>
@@ -340,17 +370,13 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
                                                     ? formatDateTimeDDMMYYYY(row.submitted_at)
                                                     : "—"}
                                             </td>
-                                            <td data-label="">
+                                            <td data-label="Action">
                                                 <button
                                                     type="button"
                                                     className="tax-decl-btn tax-decl-btn--secondary tax-decl-btn--sm"
-                                                    onClick={() => handleOpenDetail(row.id)}
+                                                    onClick={() => handleOpenDetail(row.id ?? row.declaration_id)}
                                                 >
-                                                    {row.status === "submitted" || row.status === "returned_to_accounts" || row.status === "verified" || row.final_proof_status === "submitted" || row.final_proof_status === "verified" || row.final_proof_status === "returned"
-                                                        ? "Review"
-                                                        : row.status === "approved"
-                                                            ? "View"
-                                                            : "View"}
+                                                    {actionLabel}
                                                 </button>
                                             </td>
                                         </tr>

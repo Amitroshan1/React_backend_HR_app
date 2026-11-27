@@ -88,6 +88,33 @@ export function isSoftwareCategory(value) {
   return String(value || "").trim().toLowerCase() === "software";
 }
 
+/** Accessories / Consumables / Stock are quantity lines, not serialized units. */
+export function isQtyManagedItemCategory(category) {
+  const cat = String(category || "").trim().toLowerCase();
+  return (
+    cat === "stock" ||
+    cat === "accessories" ||
+    cat === "accessory" ||
+    cat === "consumables" ||
+    cat === "consumable" ||
+    cat.startsWith("accessor") ||
+    cat.startsWith("consumable")
+  );
+}
+
+/** Available qty for accessories/consumables when the stored available column was wiped. */
+export function qtyManagedAvailable(item) {
+  if (!isQtyManagedItemCategory(item?.category)) {
+    return Number(item?.availableQuantity ?? item?.available ?? 0);
+  }
+  const assigned = Number(item?.assignedQuantity ?? 0);
+  const notWorking = Number(item?.notWorkingQuantity ?? 0);
+  const repair = Number(item?.repairQuantity ?? 0);
+  const total = Number(item?.totalQuantity ?? item?.total ?? 0);
+  const stored = Number(item?.availableQuantity ?? item?.available ?? 0);
+  return Math.max(stored, Math.max(0, total - assigned - notWorking - repair));
+}
+
 export function excludeSoftwareItems(items, categoryKey = "category") {
   return (items || []).filter((item) => !isSoftwareCategory(item?.[categoryKey]));
 }
@@ -239,9 +266,12 @@ export function formatParcelBrandModel(asset, inventoryCategory) {
     return make || model;
   }
   const brand = String(asset?.brand || "").trim();
+  const make = String(asset?.make || "").trim();
   const model = String(asset?.model || "").trim();
-  if (!brand || brand === "—") return "—";
-  return model ? `${brand} · ${model}` : brand;
+  if (brand && make && make !== model) return `${brand} · ${make}`;
+  if (brand && model) return `${brand} · ${model}`;
+  if (make && model && make !== model) return `${make} · ${model}`;
+  return brand || make || model || "—";
 }
 
 /** Primary name column for export tables (owner for transport, asset name otherwise). */

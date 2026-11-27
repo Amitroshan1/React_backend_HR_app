@@ -5,7 +5,7 @@ import {
   Users, FileText, TrendingUp, Download, 
   Send, Calculator, ChevronDown, ChevronRight, 
   ArrowLeft, Upload, FileCheck, Receipt, Landmark,
-  Shield, Wallet, Building2, Scale
+  Shield, Wallet, Building2, Scale, X
 } from 'lucide-react';
 import './Account.css';
 import { useUser } from '../../components/layout/UserContext';
@@ -25,6 +25,8 @@ import {
 } from '../../utils/financialYear';
 import { notifyApiFailure, notifySuccess } from '../../utils/notify';
 import { getAccessToken } from "../../utils/authSession";
+import { errorFromApiResponse, getApiErrorMessage, readJsonResponse } from '../../utils/apiError';
+import { isLikelyNetworkError, NO_INTERNET_MESSAGE } from '../../utils/networkStatus';
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax Regime'];
 const BULK_PAYROLL_MONTHS = [
@@ -48,6 +50,29 @@ function payrollAmountDisplay(value) {
 function selectPayrollZeroOnFocus(e) {
   if (Number(e.target.value) === 0) {
     e.target.select();
+  }
+}
+
+async function fetchAccountsJson(url, token) {
+  const once = async () => {
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const result = await readJsonResponse(response);
+    if (!response.ok || result.success === false) {
+      throw errorFromApiResponse(response, result);
+    }
+    return result;
+  };
+  try {
+    return await once();
+  } catch (err) {
+    const status = err?.status;
+    if (status && status >= 400 && status < 500) throw err;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return once();
   }
 }
 
@@ -238,6 +263,7 @@ export const Account = ()  => {
   const [employeesList, setEmployeesList] = useState([]);
   const [payrollSummary, setPayrollSummary] = useState([]);
   const [payrollError, setPayrollError] = useState('');
+  const [payrollLoading, setPayrollLoading] = useState(false);
   const [statsData, setStatsData] = useState({
     total_employees: 0,
     employees_paid: 0,
@@ -245,6 +271,7 @@ export const Account = ()  => {
     ytd_expenses: 0
   });
   const [statsError, setStatsError] = useState('');
+  const [statsLoading, setStatsLoading] = useState(false);
   const [nocSummary, setNocSummary] = useState({
     pending: 0,
     total: 0,
@@ -268,6 +295,7 @@ export const Account = ()  => {
   const [payslipMonth, setPayslipMonth] = useState('January');
   const [payslipYear, setPayslipYear] = useState('2024');
   const [payslipFile, setPayslipFile] = useState(null);
+  const payslipFileInputRef = useRef(null);
   const [isPayslipUploading, setIsPayslipUploading] = useState(false);
   const [payslipHistory, setPayslipHistory] = useState([]);
   const [payslipHistoryLoading, setPayslipHistoryLoading] = useState(false);
@@ -343,6 +371,7 @@ export const Account = ()  => {
   const [isTracesImporting, setIsTracesImporting] = useState(false);
   const [form16FinancialYear, setForm16FinancialYear] = useState('');
   const [form16File, setForm16File] = useState(null);
+  const form16FileInputRef = useRef(null);
   const [form16Parsed, setForm16Parsed] = useState({
     parsed_gross_salary: '',
     parsed_tds_deducted: '',
@@ -561,8 +590,8 @@ export const Account = ()  => {
 
   const stats = useMemo(() => {
     const base = [
-      { title: 'Total Employees', value: statsData.total_employees, subtitle: 'Active employees', icon: <Users size={20} /> },
-      { title: 'Payslips Generated', value: statsData.payslips_generated, subtitle: 'Current month', icon: <FileText size={20} /> },
+      { title: 'Total Employees', value: statsLoading ? '—' : statsData.total_employees, subtitle: 'Active employees', icon: <Users size={20} /> },
+      { title: 'Payslips Generated', value: statsLoading ? '—' : statsData.payslips_generated, subtitle: 'Current month', icon: <FileText size={20} /> },
     ];
 
     if (isAccountsDept) {
@@ -603,6 +632,7 @@ export const Account = ()  => {
     return base;
   }, [
     statsData,
+    statsLoading,
     isAccountsDept,
     canReviewTaxDeclarations,
     nocSummary,
@@ -617,22 +647,20 @@ export const Account = ()  => {
     if (!token) return;
 
     const loadStats = async () => {
+      setStatsLoading(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/payroll-summary`, {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
-        const result = await response.json();
-        if (!response.ok || !result.success) {
-          throw new Error(result.message || 'Failed to load stats');
-        }
+        const result = await fetchAccountsJson(`${API_BASE_URL}/payroll-summary`, token);
         setStatsData(result.data || {});
         setStatsError('');
       } catch (error) {
         console.error('Payroll stats error:', error);
-        setStatsError(error.message || 'Unable to load stats');
+        setStatsError(
+          isLikelyNetworkError(error)
+            ? NO_INTERNET_MESSAGE
+            : getApiErrorMessage(error, 'Unable to load dashboard stats. Please try again.')
+        );
+      } finally {
+        setStatsLoading(false);
       }
     };
 
@@ -699,22 +727,20 @@ export const Account = ()  => {
   const loadPayrollSummary = async () => {
     const token = getAccessToken();
     if (!token) return;
+    setPayrollLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/employee-type-circle-summary`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || 'Failed to load payroll summary');
-      }
+      const result = await fetchAccountsJson(`${API_BASE_URL}/employee-type-circle-summary`, token);
       setPayrollSummary(result.data || []);
       setPayrollError('');
     } catch (error) {
       console.error('Payroll summary error:', error);
-      setPayrollError(error.message || 'Unable to load payroll summary');
+      setPayrollError(
+        isLikelyNetworkError(error)
+          ? NO_INTERNET_MESSAGE
+          : getApiErrorMessage(error, 'Unable to load payroll by department. Please try again.')
+      );
+    } finally {
+      setPayrollLoading(false);
     }
   };
 
@@ -729,13 +755,14 @@ export const Account = ()  => {
     try {
       const response = await fetch(`${API_BASE_URL}/employees-by-type-circle?emp_type=${encodeURIComponent(dept)}&circle=${encodeURIComponent(circle)}`, {
         method: 'GET',
+        credentials: 'include',
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
-      const result = await response.json();
+      const result = await readJsonResponse(response);
       if (!response.ok || !result.success) {
-        throw new Error(result.message || 'Failed to load employees');
+        throw errorFromApiResponse(response, result);
       }
       const mapped = (result.employees || []).map(emp => ({
         id: emp.emp_id || emp.id,
@@ -1955,6 +1982,7 @@ export const Account = ()  => {
     setPayslipMonth('January');
     setPayslipYear(currentYear);
     setPayslipFile(null);
+    if (payslipFileInputRef.current) payslipFileInputRef.current.value = '';
     setPayslipHistory([]);
     setPayslipHistoryError('');
     setCurrentView('addPayslip');
@@ -1971,7 +1999,7 @@ export const Account = ()  => {
       return;
     }
     if (!payslipFile) {
-      alert('Please choose a payslip file.');
+      alert('Please choose a Payslip file');
       return;
     }
 
@@ -2003,11 +2031,12 @@ export const Account = ()  => {
 
       alert('Payslip uploaded successfully');
       setPayslipFile(null);
+      if (payslipFileInputRef.current) payslipFileInputRef.current.value = '';
       await loadPayslipHistory(selectedEmployee.adminId);
       await handleCircleSelect(selectedDept, selectedCircle, false);
     } catch (error) {
       console.error('Payslip upload error:', error);
-      alert(error.message || 'Unable to upload payslip');
+      alert(isLikelyNetworkError(error) ? NO_INTERNET_MESSAGE : (error.message || 'Unable to upload payslip'));
     } finally {
       setIsPayslipUploading(false);
     }
@@ -3141,6 +3170,7 @@ export const Account = ()  => {
 
       alert('Form 16 uploaded successfully');
       setForm16File(null);
+      if (form16FileInputRef.current) form16FileInputRef.current.value = '';
       setForm16OfficialTraces(false);
       setForm16PartType('combined');
       await loadForm16History(selectedEmployee.adminId);
@@ -3484,6 +3514,11 @@ export const Account = ()  => {
                     <td colSpan="4" className="empty">{payrollError}</td>
                   </tr>
                 )}
+                {!payrollError && payrollLoading && payrollSummary.length === 0 && (
+                  <tr>
+                    <td colSpan="4" className="empty">Loading payroll by department…</td>
+                  </tr>
+                )}
                 {payrollSummary.map((dept) => (
                   <React.Fragment key={dept.department}>
                     <tr>
@@ -3783,21 +3818,38 @@ export const Account = ()  => {
           </div>
           <div className="input-group">
             <span className="accounts-upload-label">Payslip file</span>
-            <label className="accounts-file-picker">
-              <input
-                type="file"
-                className="accounts-file-picker__input"
-                accept=".pdf,.jpg,.jpeg,.png"
-                onChange={(e) => setPayslipFile(e.target.files?.[0] || null)}
-              />
-              <span className="accounts-file-picker__btn">
-                <Upload size={14} aria-hidden />
-                Choose file
-              </span>
-              <span className={`accounts-file-picker__name${payslipFile ? ' accounts-file-picker__name--selected' : ''}`}>
-                {payslipFile?.name || 'PDF, JPG, or PNG'}
-              </span>
-            </label>
+            <div className="accounts-file-picker-row">
+              <label className="accounts-file-picker">
+                <input
+                  ref={payslipFileInputRef}
+                  type="file"
+                  className="accounts-file-picker__input"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={(e) => setPayslipFile(e.target.files?.[0] || null)}
+                />
+                <span className="accounts-file-picker__btn">
+                  <Upload size={14} aria-hidden />
+                  Choose file
+                </span>
+                <span className={`accounts-file-picker__name${payslipFile ? ' accounts-file-picker__name--selected' : ''}`}>
+                  {payslipFile?.name || 'No file chosen'}
+                </span>
+              </label>
+              {payslipFile ? (
+                <button
+                  type="button"
+                  className="accounts-file-picker__clear"
+                  onClick={() => {
+                    setPayslipFile(null);
+                    if (payslipFileInputRef.current) payslipFileInputRef.current.value = '';
+                  }}
+                  aria-label="Remove selected Payslip file"
+                >
+                  <X size={16} aria-hidden />
+                  Remove
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="accounts-upload-actions">
             <button
@@ -3917,21 +3969,38 @@ export const Account = ()  => {
           </div>
           <div className="input-group">
             <span className="accounts-upload-label">Form 16 file</span>
-            <label className="accounts-file-picker">
-              <input
-                type="file"
-                className="accounts-file-picker__input"
-                accept={form16OfficialTraces ? '.pdf' : '.pdf,.jpg,.jpeg,.png'}
-                onChange={(e) => setForm16File(e.target.files?.[0] || null)}
-              />
-              <span className="accounts-file-picker__btn">
-                <Upload size={14} aria-hidden />
-                Choose file
-              </span>
-              <span className={`accounts-file-picker__name${form16File ? ' accounts-file-picker__name--selected' : ''}`}>
-                {form16File?.name || (form16OfficialTraces ? 'PDF only' : 'PDF, JPG, or PNG')}
-              </span>
-            </label>
+            <div className="accounts-file-picker-row">
+              <label className="accounts-file-picker">
+                <input
+                  ref={form16FileInputRef}
+                  type="file"
+                  className="accounts-file-picker__input"
+                  accept={form16OfficialTraces ? '.pdf' : '.pdf,.jpg,.jpeg,.png'}
+                  onChange={(e) => setForm16File(e.target.files?.[0] || null)}
+                />
+                <span className="accounts-file-picker__btn">
+                  <Upload size={14} aria-hidden />
+                  Choose file
+                </span>
+                <span className={`accounts-file-picker__name${form16File ? ' accounts-file-picker__name--selected' : ''}`}>
+                  {form16File?.name || 'No file chosen'}
+                </span>
+              </label>
+              {form16File ? (
+                <button
+                  type="button"
+                  className="accounts-file-picker__clear"
+                  onClick={() => {
+                    setForm16File(null);
+                    if (form16FileInputRef.current) form16FileInputRef.current.value = '';
+                  }}
+                  aria-label="Remove selected Form 16 file"
+                >
+                  <X size={16} aria-hidden />
+                  Remove
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="accounts-upload-form accounts-upload-form--grid">
             <label className="input-group accounts-checkbox-row">
@@ -7086,7 +7155,7 @@ export const Account = ()  => {
     || (currentView === 'complianceExports')
     || (currentView === 'payrollLifecycle')
     || (currentView === 'taxDeclarations')
-    || (currentView === 'taxDeclarationDetail' && selectedTaxDeclId)
+    || (currentView === 'taxDeclarationDetail')
     || (currentView === 'addForm16')
     || (currentView === 'ctcBreakup')
     || (currentView === 'tdsProjection')
@@ -7137,12 +7206,15 @@ export const Account = ()  => {
       {currentView === 'payrollLifecycle' && renderPayrollLifecycle()}
       {currentView === 'payrollHistory' && renderPayrollHistory()}
       {currentView === 'payrollApprovals' && renderPayrollApprovals()}
-      {currentView === 'taxDeclarations' && (
+      {(currentView === 'taxDeclarations' || (currentView === 'taxDeclarationDetail' && !selectedTaxDeclId)) && (
         <TaxDeclarationReview
           apiBase={API_BASE_URL}
           onBack={() => setCurrentView('main')}
           onOpenDetail={(declId) => {
-            setSelectedTaxDeclId(declId);
+            const id = Number(declId);
+            if (!Number.isFinite(id) || id <= 0) return;
+            localStorage.setItem('account_selected_tax_decl_id', String(id));
+            setSelectedTaxDeclId(id);
             setCurrentView('taxDeclarationDetail');
           }}
         />

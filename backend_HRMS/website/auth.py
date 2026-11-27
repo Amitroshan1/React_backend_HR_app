@@ -464,14 +464,19 @@ def _cookies_should_be_secure() -> bool:
     return bool(request.is_secure or proto == "https")
 
 
-def _login_response(admin):
-    """HttpOnly access cookie plus JSON token for this tab (not written to Local Storage)."""
+def _login_response(admin, *, clear_existing_cookies=True):
+    """HttpOnly access cookie plus JSON token for this tab (not written to Local Storage).
+
+    Session refresh must not unset-then-set the cookie: overlapping reloads can
+    apply Max-Age=0 and drop a still-valid session.
+    """
     payload = _issue_login_token(admin)
     access_token = payload.get("token")
     resp = jsonify(payload)
     max_age = int(payload.get("session_timeout_minutes") or 15) * 60
     current_app.config["JWT_COOKIE_SECURE"] = _cookies_should_be_secure()
-    unset_jwt_cookies(resp)
+    if clear_existing_cookies:
+        unset_jwt_cookies(resp)
     if access_token:
         set_access_cookies(resp, access_token, max_age=max_age)
     return resp, 200
@@ -748,7 +753,7 @@ def refresh_session():
     if not admin_login_allowed(admin):
         return _login_blocked_response([admin])
 
-    return _login_response(admin)
+    return _login_response(admin, clear_existing_cookies=False)
 
 
 SENSITIVE_OTP_CHANNEL = "sensitive"
@@ -959,7 +964,12 @@ def _homepage_profile_gaps(admin, employee, leave_balance, managers):
         gaps.append({"key": "doj", "label": "Date of joining"})
     if leave_balance is None:
         gaps.append({"key": "leave_balance", "label": "Leave balance"})
-    if not managers:
+    l1_name = ""
+    if isinstance(managers, dict):
+        l1 = managers.get("l1") or {}
+        if isinstance(l1, dict):
+            l1_name = (l1.get("name") or "").strip()
+    if not l1_name:
         gaps.append({"key": "manager", "label": "Reporting manager"})
     if employee is None:
         gaps.append({"key": "employee_record", "label": "Employee profile"})
@@ -1172,16 +1182,18 @@ def _employee_homepage_impl():
 
     manager_contact = resolve_manager_contact_for_employee(admin)
 
-    managers = {}
+    managers = {"l1": None, "l2": None, "l3": None}
     if manager_contact:
         from .manager_utils import get_manager_detail
         for key in ("l1", "l2", "l3"):
             d = get_manager_detail(manager_contact, key)
-            if d.get("name") or d.get("email"):
+            name = (d.get("name") or "").strip()
+            email = (d.get("email") or "").strip()
+            if name or email:
                 managers[key] = {
-                    "name": d["name"],
-                    "email": d["email"],
-                    "mobile": d["mobile"]
+                    "name": name or None,
+                    "email": email,
+                    "mobile": d.get("mobile") or "",
                 }
 
     from .manager_utils import user_has_manager_access

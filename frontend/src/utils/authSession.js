@@ -93,29 +93,78 @@ export function installAccessTokenMemory() {
   purgePersistedJwt();
 }
 
-/** New tab / refresh: HttpOnly cookie re-issues JWT into memory (not disk). */
-export async function hydrateAccessTokenFromCookie() {
-  if (getAccessToken()) return true;
+let refreshInFlight = null;
+
+export function isSessionRefreshInFlight() {
+  return refreshInFlight != null;
+}
+
+function persistTimeoutMinutes(minutes) {
+  const n = Number(minutes);
+  if (!Number.isFinite(n) || n <= 0) return;
+  const ms = Math.round(n * 60 * 1000);
+  const clamped = Math.min(60 * 60 * 1000, Math.max(15 * 60 * 1000, ms));
+  writeStore(localStorage, "sessionTimeoutMs", String(clamped));
+}
+
+function isHardSessionDeath(data) {
+  const code = String(data?.code || "");
+  return code === "session_expired" || code === "tenant_suspended";
+}
+
+async function postSessionRefresh() {
+  const token = getAccessToken();
+  const headers = { "Content-Type": "application/json" };
+  if (isLikelyJwt(token)) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch("/api/auth/session/refresh", {
+    method: "POST",
+    credentials: "include",
+    headers,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { res, data };
+}
+
+async function doRefreshAccessSession() {
   try {
-    const res = await fetch("/api/auth/session/refresh", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    });
-    const data = await res.json().catch(() => ({}));
+    let { res, data } = await postSessionRefresh();
+    if (res.status === 401 && !isHardSessionDeath(data)) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      ({ res, data } = await postSessionRefresh());
+    }
     if (res.status === 401) {
-      clearAccessToken();
-      return false;
+      if (isHardSessionDeath(data)) {
+        clearAccessToken();
+        return { ok: false, endSession: true, code: String(data?.code || ""), data };
+      }
+      return { ok: false, endSession: false, data };
     }
     if (res.ok && data?.success) {
       if (isLikelyJwt(data.token)) setAccessToken(data.token);
       else markSignedIn();
-      return true;
+      persistTimeoutMinutes(data.session_timeout_minutes);
+      return { ok: true, endSession: false, data };
     }
   } catch {
-    /* ignore */
+    /* keep signed-in hint on network blips */
   }
-  return false;
+  return { ok: false, endSession: false };
+}
+
+/** One in-flight cookie refresh for hydrate + idle slide (avoids overlapping Set-Cookie). */
+export function refreshAccessSession() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = doRefreshAccessSession().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+/** New tab / refresh: HttpOnly cookie re-issues JWT into memory (not disk). */
+export async function hydrateAccessTokenFromCookie() {
+  if (getAccessToken()) return true;
+  const result = await refreshAccessSession();
+  return result.ok === true;
 }
 
 export async function clearAccessCookie() {

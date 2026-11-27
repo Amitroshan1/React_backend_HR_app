@@ -20,6 +20,7 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { SensitiveDataGate } from "./components/security/SensitiveDataGate";
 import { RequirePanel, RequireItOrSelfAssets, RequireMyAssets } from "./components/security/RequirePanel";
 import { UserProvider } from "./components/layout/UserContext";
+import { OfflineBanner } from "./components/layout/OfflineBanner";
 import { AttendanceEventsProvider } from "./hooks/useAttendanceEvents";
 import { Queries } from "./pages/Query/Queries";
 import { DepartmentQueryInbox } from "./pages/Query/DepartmentQueryInbox";
@@ -244,6 +245,7 @@ export const App = () => {
 
   return (
     <UserProvider>
+      <OfflineBanner />
       <AttendanceEventsProvider>
         <ToastContainer
           position="bottom-right"

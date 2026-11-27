@@ -6,7 +6,8 @@ import {
     shouldEndSessionFor401,
     TENANT_SUSPENDED_CODE,
 } from '../../utils/sessionTimeout';
-import { getAccessToken, hasSignedInHint } from '../../utils/authSession';
+import { getAccessToken, hasSignedInHint, refreshAccessSession } from '../../utils/authSession';
+import { isLikelyNetworkError } from '../../utils/networkStatus';
 import { classifyHomepageFailure, deriveProfileGaps } from '../dashboard/ProfileStatusPanel';
 
 const API_BASE_URL = "/api/auth";
@@ -19,8 +20,8 @@ export const useUser = () => useContext(UserContext);
 const emptyUserData = {
     user: {},
     employee: {},
-    leave_balance: { pl: 'N/A', cl: 'N/A' },
-    managers: {},
+    leave_balance: {},
+    managers: { l1: null, l2: null, l3: null },
 };
 
 export const UserProvider = ({ children }) => {
@@ -28,12 +29,17 @@ export const UserProvider = ({ children }) => {
     const [loadingUser, setLoadingUser] = useState(true);
     const [profileStatus, setProfileStatus] = useState(null);
     const [photoVersion, setPhotoVersion] = useState(0);
+    const [shellStatus, setShellStatus] = useState("unavailable");
     const lastFetchedAtRef = useRef(0);
     const inFlightRef = useRef(null);
 
     const fetchCoreUserData = useCallback(async (options = {}) => {
         const force = options === true || options?.force === true;
-        const token = getAccessToken();
+        let token = getAccessToken();
+        if (!token && hasSignedInHint()) {
+            await refreshAccessSession();
+            token = getAccessToken();
+        }
         if (!token && !hasSignedInHint()) {
             clearPlanContext();
             lastFetchedAtRef.current = 0;
@@ -80,6 +86,7 @@ export const UserProvider = ({ children }) => {
                     throw new Error("Unauthorized (token invalid or expired).");
                 }
                 if (!response.ok || !body.success) {
+                    setShellStatus(lastFetchedAtRef.current > 0 ? "stale" : "unavailable");
                     setProfileStatus(classifyHomepageFailure(response.status, body));
                     return;
                 }
@@ -89,13 +96,18 @@ export const UserProvider = ({ children }) => {
                 setUserData({
                     user: body.user || {},
                     employee: body.employee || {},
-                    leave_balance: body.leave_balance || { pl: 'N/A', cl: 'N/A' },
-                    managers: body.managers || {},
+                    leave_balance: body.leave_balance || {},
+                    managers: {
+                        l1: body.managers?.l1 || null,
+                        l2: body.managers?.l2 || null,
+                        l3: body.managers?.l3 || null,
+                    },
                     plan: body.plan || 'essential',
                     plan_label: body.plan_label || '',
                     features: body.features || [],
                     profile_gaps: body.profile_gaps || [],
                 });
+                setShellStatus("ok");
                 const gaps = deriveProfileGaps(body);
                 setProfileStatus(
                     gaps.length
@@ -113,9 +125,14 @@ export const UserProvider = ({ children }) => {
                 lastFetchedAtRef.current = Date.now();
             } catch (err) {
                 console.error("User Context Fetch error:", err);
-                setProfileStatus((prev) => (
-                    prev?.kind === "load_failed" ? prev : classifyHomepageFailure(0, {})
-                ));
+                setShellStatus(lastFetchedAtRef.current > 0 ? "stale" : "unavailable");
+                if (isLikelyNetworkError(err)) {
+                    setProfileStatus(classifyHomepageFailure(0, { error_code: "NETWORK_ERROR" }));
+                } else {
+                    setProfileStatus((prev) => (
+                        prev?.kind === "load_failed" ? prev : classifyHomepageFailure(0, {})
+                    ));
+                }
             } finally {
                 setLoadingUser(false);
                 inFlightRef.current = null;
@@ -138,10 +155,11 @@ export const UserProvider = ({ children }) => {
         userData,
         loadingUser,
         profileStatus,
+        shellStatus,
         refreshUserData: fetchCoreUserData,
         photoVersion,
         bumpPhotoVersion,
-    }), [userData, loadingUser, profileStatus, fetchCoreUserData, photoVersion, bumpPhotoVersion]);
+    }), [userData, loadingUser, profileStatus, shellStatus, fetchCoreUserData, photoVersion, bumpPhotoVersion]);
 
     return (
         <UserContext.Provider value={value}>
